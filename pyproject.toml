@@ -1,0 +1,109 @@
+[tool.poetry]
+name = "fastlimit"
+version = "0.1.0"
+description = "Production-ready rate limiting library for Python with Redis backend"
+authors = ["Arjun <arjun@example.com>"]
+readme = "README.md"
+packages = [{include = "fastlimit"}]
+keywords = ["rate-limit", "rate-limiting", "redis", "fastapi", "async", "api", "throttle"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Framework :: FastAPI",
+    "Framework :: AsyncIO",
+    "Intended Audience :: Developers",
+    "Topic :: Software Development :: Libraries :: Python Modules",
+    "Topic :: Internet :: WWW/HTTP :: Session",
+    "License :: OSI Approved :: MIT License",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.9",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+]
+homepage = "https://github.com/yourusername/fastlimit"
+repository = "https://github.com/yourusername/fastlimit"
+documentation = "https://github.com/yourusername/fastlimit#readme"
+
+[tool.poetry.dependencies]
+python = "^3.9"
+redis = "^5.0.0"
+pydantic = "^2.0"
+pydantic-settings = "^2.0"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^7.4"
+pytest-asyncio = "^0.21"
+pytest-cov = "^4.1"
+pytest-timeout = "^2.1"
+black = "^23.0"
+ruff = "^0.1"
+mypy = "^1.5"
+pre-commit = "^3.5"
+types-redis = "^4.6"
+
+[tool.poetry.group.examples.dependencies]
+fastapi = "^0.104"
+uvicorn = "^0.24"
+httpx = "^0.25"
+
+[tool.poetry.group.benchmarks.dependencies]
+locust = "^2.17"
+matplotlib = "^3.7"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.black]
+line-length = 100
+target-version = ['py39']
+include = '\.pyi?$'
+
+[tool.ruff]
+line-length = 100
+target-version = "py39"
+select = [
+    "E",    # pycodestyle errors
+    "W",    # pycodestyle warnings
+    "F",    # pyflakes
+    "I",    # isort
+    "B",    # flake8-bugbear
+    "C4",   # flake8-comprehensions
+    "UP",   # pyupgrade
+]
+ignore = []
+fixable = ["ALL"]
+unfixable = []
+
+[tool.mypy]
+python_version = "3.9"
+strict = true
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = true
+disallow_any_unimported = false
+no_implicit_optional = true
+check_untyped_defs = true
+show_error_codes = true
+show_error_context = true
+pretty = true
+
+[tool.pytest.ini_options]
+minversion = "6.0"
+addopts = "-ra -q --strict-markers"
+testpaths = ["tests"]
+pythonpath = ["."]
+asyncio_mode = "auto"
+
+[tool.coverage.run]
+source = ["fastlimit"]
+omit = ["*/tests/*", "*/examples/*", "*/benchmarks/*"]
+
+[tool.coverage.report]
+exclude_lines = [
+    "pragma: no cover",
+    "def __repr__",
+    "if __name__ == .__main__.:",
+    "raise AssertionError",
+    "raise NotImplementedError",
+]
