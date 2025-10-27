@@ -1,0 +1,32 @@
+# Development docker-compose configuration
+# Usage: docker-compose -f docker-compose.dev.yml up
+
+version: '3.8'
+
+services:
+  redis:
+    image: redis:7-alpine
+    container_name: fastlimit-redis-dev
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes --loglevel debug
+    volumes:
+      - ./data/redis:/data
+    networks:
+      - fastlimit-dev
+
+  redis-insight:
+    image: redislabs/redisinsight:latest
+    container_name: fastlimit-redis-insight
+    ports:
+      - "8001:8001"
+    volumes:
+      - ./data/redisinsight:/db
+    networks:
+      - fastlimit-dev
+    depends_on:
+      - redis
+
+networks:
+  fastlimit-dev:
+    driver: bridge
