@@ -146,7 +146,7 @@ return {allowed, remaining, ttl * 1000}
             logger.info("Closed Redis connection")
 
     async def check_fixed_window(
-        self, key: str, max_requests: int, window_seconds: int
+        self, key: str, max_requests: int, window_seconds: int, cost: int = 1000
     ) -> RateLimitResult:
         """
         Check rate limit using fixed window algorithm.
@@ -158,6 +158,7 @@ return {allowed, remaining, ttl * 1000}
             key: Rate limit key (should be pre-formatted)
             max_requests: Maximum requests allowed (with 1000x multiplier)
             window_seconds: Size of the time window in seconds
+            cost: Cost of this request (with 1000x multiplier, default 1000 = cost of 1)
 
         Returns:
             RateLimitResult with allowed status and metadata
@@ -179,14 +180,15 @@ return {allowed, remaining, ttl * 1000}
                         str(max_requests).encode(),  # ARGV[1]
                         str(window_seconds).encode(),  # ARGV[2]
                         str(int(time.time())).encode(),  # ARGV[3] - timestamp
+                        str(cost).encode(),  # ARGV[4] - cost
                     )
                 except redis.NoScriptError:
                     # Script not in cache, fall back to EVAL
                     logger.debug("Script not in cache, using EVAL")
-                    result = await self._execute_script("fixed_window", key, max_requests, window_seconds)
+                    result = await self._execute_script("fixed_window", key, max_requests, window_seconds, cost)
             else:
                 # No SHA available, use EVAL
-                result = await self._execute_script("fixed_window", key, max_requests, window_seconds)
+                result = await self._execute_script("fixed_window", key, max_requests, window_seconds, cost)
 
             # Parse result
             if not isinstance(result, list) or len(result) != 3:
@@ -210,7 +212,7 @@ return {allowed, remaining, ttl * 1000}
             raise BackendError(f"Unexpected error: {e}")
 
     async def _execute_script(
-        self, script_name: str, key: str, max_requests: int, window_seconds: int
+        self, script_name: str, key: str, max_requests: int, window_seconds: int, cost: int = 1000
     ) -> Any:
         """Execute Lua script with EVAL."""
         if not self._redis:
@@ -227,6 +229,7 @@ return {allowed, remaining, ttl * 1000}
             str(max_requests).encode(),  # ARGV[1]
             str(window_seconds).encode(),  # ARGV[2]
             str(int(time.time())).encode(),  # ARGV[3]
+            str(cost).encode(),  # ARGV[4]
         )
 
     async def reset(self, key: str) -> bool:

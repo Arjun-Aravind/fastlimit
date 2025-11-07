@@ -187,7 +187,7 @@ class RateLimiter:
         # For now, only fixed window is implemented
         if algorithm == "fixed_window":
             result = await self.backend.check_fixed_window(
-                full_key, max_requests, window_seconds
+                full_key, max_requests, window_seconds, cost_with_multiplier
             )
         else:
             raise NotImplementedError(f"Algorithm {algorithm} not yet implemented")

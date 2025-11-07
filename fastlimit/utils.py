@@ -107,7 +107,9 @@ def generate_key(
     # Ensure tenant_type is also safe
     safe_tenant = tenant_type.replace(":", "_").replace(" ", "_")
 
-    return f"{prefix}:{safe_id}:{safe_tenant}:{time_window}"
+    # Generate the key and apply hash optimization for long keys
+    full_key = f"{prefix}:{safe_id}:{safe_tenant}:{time_window}"
+    return hash_key(full_key, max_length=200)
 
 
 def get_time_window(window_seconds: int) -> str:
