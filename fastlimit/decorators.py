@@ -198,6 +198,20 @@ async def _check_rate_limit(
             tenant_type=tenant_type,
             cost=cost,
         )
+
+        # Rate limit check passed - get usage info for headers
+        if hasattr(request, "state"):
+            try:
+                usage = await limiter.get_usage(key=key, rate=rate, tenant_type=tenant_type)
+                request.state.rate_limit_info = {
+                    "limit": usage["limit"],
+                    "remaining": usage["remaining"],
+                    "window_seconds": usage["window_seconds"],
+                    "ttl": usage["ttl"],
+                }
+            except Exception as e:
+                logger.debug(f"Could not get usage info for headers: {e}")
+
     except RateLimitExceeded as e:
         # Add rate limit headers to the request state
         # This allows middleware to add them to the response

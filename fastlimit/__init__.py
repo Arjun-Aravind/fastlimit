@@ -26,6 +26,7 @@ FastAPI integration:
 from .limiter import RateLimiter
 from .exceptions import RateLimitExceeded, RateLimitConfigError, BackendError
 from .models import RateLimitConfig
+from .middleware import RateLimitHeadersMiddleware
 
 __version__ = "0.1.0"
 __author__ = "Arjun"
@@ -37,4 +38,5 @@ __all__ = [
     "RateLimitConfigError",
     "BackendError",
     "RateLimitConfig",
+    "RateLimitHeadersMiddleware",
 ]
