@@ -28,6 +28,15 @@ from .exceptions import RateLimitExceeded, RateLimitConfigError, BackendError
 from .models import RateLimitConfig
 from .middleware import RateLimitHeadersMiddleware
 
+# Metrics are optional - only import if prometheus_client is available
+try:
+    from .metrics import RateLimitMetrics, init_metrics
+    _METRICS_AVAILABLE = True
+except ImportError:
+    _METRICS_AVAILABLE = False
+    RateLimitMetrics = None
+    init_metrics = None
+
 __version__ = "0.1.0"
 __author__ = "Arjun"
 __email__ = "arjun@example.com"
@@ -40,3 +49,7 @@ __all__ = [
     "RateLimitConfig",
     "RateLimitHeadersMiddleware",
 ]
+
+# Add metrics to exports if available
+if _METRICS_AVAILABLE:
+    __all__.extend(["RateLimitMetrics", "init_metrics"])

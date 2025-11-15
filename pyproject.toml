@@ -50,6 +50,9 @@ httpx = "^0.25"
 locust = "^2.17"
 matplotlib = "^3.7"
 
+[tool.poetry.group.metrics.dependencies]
+prometheus-client = "^0.19"
+
 [build-system]
 requires = ["poetry-core"]
 build-backend = "poetry.core.masonry.api"
