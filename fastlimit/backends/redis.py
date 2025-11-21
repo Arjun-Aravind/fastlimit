@@ -85,6 +85,15 @@ end
 return {allowed, remaining, ttl * 1000}
 """
 
+        # Load token bucket script
+        token_bucket_path = script_dir / "token_bucket.lua"
+        if token_bucket_path.exists():
+            with open(token_bucket_path, "r") as f:
+                self._scripts["token_bucket"] = f.read()
+        else:
+            # No fallback for token bucket - requires file
+            logger.warning("token_bucket.lua not found, token bucket algorithm disabled")
+
         logger.debug(f"Loaded {len(self._scripts)} Lua scripts")
 
     async def connect(self) -> None:
@@ -231,6 +240,129 @@ return {allowed, remaining, ttl * 1000}
             str(int(time.time())).encode(),  # ARGV[3]
             str(cost).encode(),  # ARGV[4]
         )
+
+    async def check_token_bucket(
+        self, key: str, max_tokens: int, refill_rate: float, current_time: int, cost: int = 1000
+    ) -> RateLimitResult:
+        """
+        Check rate limit using token bucket algorithm.
+
+        This method executes the token bucket Lua script atomically,
+        ensuring thread-safe rate limiting with smooth token refills.
+
+        Args:
+            key: Rate limit key (should be pre-formatted)
+            max_tokens: Maximum bucket capacity (with 1000x multiplier)
+            refill_rate: Tokens added per second (with 1000x multiplier)
+            current_time: Current Unix timestamp in seconds
+            cost: Tokens to consume (with 1000x multiplier, default 1000)
+
+        Returns:
+            RateLimitResult with allowed status and metadata
+
+        Raises:
+            BackendError: If Redis operation fails
+        """
+        if not self._redis or not self._connected:
+            raise BackendError("Redis not connected. Call connect() first.")
+
+        try:
+            # Try EVALSHA first for better performance
+            if "token_bucket" in self._script_shas:
+                try:
+                    result = await self._redis.evalsha(
+                        self._script_shas["token_bucket"],
+                        1,  # number of keys
+                        key.encode(),  # KEYS[1]
+                        str(int(max_tokens)).encode(),  # ARGV[1]
+                        str(int(refill_rate)).encode(),  # ARGV[2] - convert to int
+                        str(current_time).encode(),  # ARGV[3]
+                        str(cost).encode(),  # ARGV[4]
+                    )
+                except redis.NoScriptError:
+                    # Script not in cache, fall back to EVAL
+                    logger.debug("Script not in cache, using EVAL")
+                    result = await self._execute_token_bucket_script(
+                        key, max_tokens, refill_rate, current_time, cost
+                    )
+            else:
+                # No SHA available, use EVAL
+                result = await self._execute_token_bucket_script(
+                    key, max_tokens, refill_rate, current_time, cost
+                )
+
+            # Parse result
+            if not isinstance(result, list) or len(result) != 3:
+                raise BackendError(f"Invalid script result: {result}")
+
+            allowed = bool(int(result[0]))
+            remaining = int(result[1])
+            retry_after_ms = int(result[2])
+
+            return RateLimitResult(
+                allowed=allowed,
+                remaining=remaining,
+                retry_after=retry_after_ms,
+            )
+
+        except redis.RedisError as e:
+            logger.error(f"Redis error during token bucket check: {e}")
+            raise BackendError(f"Token bucket check failed: {e}")
+        except Exception as e:
+            logger.error(f"Unexpected error during token bucket check: {e}")
+            raise BackendError(f"Unexpected error: {e}")
+
+    async def _execute_token_bucket_script(
+        self, key: str, max_tokens: int, refill_rate: float, current_time: int, cost: int = 1000
+    ) -> Any:
+        """Execute token bucket Lua script with EVAL."""
+        if not self._redis:
+            raise BackendError("Redis not connected")
+
+        script = self._scripts.get("token_bucket")
+        if not script:
+            raise BackendError("Token bucket script not loaded")
+
+        return await self._redis.eval(
+            script,
+            1,  # number of keys
+            key.encode(),  # KEYS[1]
+            str(int(max_tokens)).encode(),  # ARGV[1]
+            str(int(refill_rate)).encode(),  # ARGV[2]
+            str(current_time).encode(),  # ARGV[3]
+            str(cost).encode(),  # ARGV[4]
+        )
+
+    async def get_token_bucket_usage(self, key: str) -> Dict[str, Any]:
+        """
+        Get current token bucket usage statistics.
+
+        Args:
+            key: Rate limit key to check
+
+        Returns:
+            Dictionary with tokens and last_refill timestamp
+
+        Raises:
+            BackendError: If Redis operation fails
+        """
+        if not self._redis or not self._connected:
+            raise BackendError("Redis not connected")
+
+        try:
+            # Use HMGET to get bucket state
+            result = await self._redis.hmget(key, "tokens", "last_refill")
+
+            tokens = int(result[0]) if result[0] else 0
+            last_refill = int(result[1]) if result[1] else 0
+
+            return {
+                "tokens": tokens,
+                "last_refill": last_refill,
+            }
+        except redis.RedisError as e:
+            logger.error(f"Failed to get token bucket usage for key {key}: {e}")
+            raise BackendError(f"Failed to get usage statistics: {e}")
 
     async def reset(self, key: str) -> bool:
         """

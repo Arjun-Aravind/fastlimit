@@ -168,26 +168,40 @@ class RateLimiter:
         if algorithm not in ["fixed_window", "token_bucket"]:
             raise RateLimitConfigError(f"Unknown algorithm: {algorithm}")
 
-        # Generate time-based key for fixed window
-        time_window = get_time_window(window_seconds)
         tenant_type = tenant_type or "default"
-
-        # Generate Redis key
-        full_key = generate_key(
-            self.config.key_prefix,
-            key,
-            tenant_type,
-            time_window,
-        )
 
         # Use integer math (multiply by 1000 for precision)
         max_requests = requests * 1000
         cost_with_multiplier = cost * 1000
 
-        # For now, only fixed window is implemented
+        # Route to appropriate algorithm
         if algorithm == "fixed_window":
+            # Fixed window needs time-based key for window buckets
+            time_window = get_time_window(window_seconds)
+            full_key = generate_key(
+                self.config.key_prefix,
+                key,
+                tenant_type,
+                time_window,
+            )
             result = await self.backend.check_fixed_window(
                 full_key, max_requests, window_seconds, cost_with_multiplier
+            )
+        elif algorithm == "token_bucket":
+            # Token bucket uses persistent key (no time window needed)
+            import time
+            full_key = generate_key(
+                self.config.key_prefix,
+                key,
+                tenant_type,
+                "bucket",  # Static suffix instead of time window
+            )
+            result = await self.backend.check_token_bucket(
+                key=full_key,
+                max_tokens=max_requests,
+                refill_rate=max_requests / window_seconds,  # tokens per second
+                current_time=int(time.time()),
+                cost=cost_with_multiplier,
             )
         else:
             raise NotImplementedError(f"Algorithm {algorithm} not yet implemented")
