@@ -165,7 +165,7 @@ class RateLimiter:
 
         # Select algorithm
         algorithm = algorithm or self.config.default_algorithm
-        if algorithm not in ["fixed_window", "token_bucket"]:
+        if algorithm not in ["fixed_window", "token_bucket", "sliding_window"]:
             raise RateLimitConfigError(f"Unknown algorithm: {algorithm}")
 
         tenant_type = tenant_type or "default"
@@ -201,6 +201,27 @@ class RateLimiter:
                 max_tokens=max_requests,
                 refill_rate=max_requests / window_seconds,  # tokens per second
                 current_time=int(time.time()),
+                cost=cost_with_multiplier,
+            )
+        elif algorithm == "sliding_window":
+            # Sliding window needs base key (windows calculated in algorithm)
+            import time
+            base_key = generate_key(
+                self.config.key_prefix,
+                key,
+                tenant_type,
+                "sliding",  # Base suffix for sliding window
+            )
+            current_time = int(time.time())
+            window_start = current_time - (current_time % window_seconds)
+            previous_window_start = window_start - window_seconds
+
+            result = await self.backend.check_sliding_window(
+                current_key=f"{base_key}:{window_start}",
+                previous_key=f"{base_key}:{previous_window_start}",
+                max_requests=max_requests,
+                window_seconds=window_seconds,
+                current_time=current_time,
                 cost=cost_with_multiplier,
             )
         else:

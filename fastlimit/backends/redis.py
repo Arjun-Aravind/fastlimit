@@ -94,6 +94,15 @@ return {allowed, remaining, ttl * 1000}
             # No fallback for token bucket - requires file
             logger.warning("token_bucket.lua not found, token bucket algorithm disabled")
 
+        # Load sliding window script
+        sliding_window_path = script_dir / "sliding_window.lua"
+        if sliding_window_path.exists():
+            with open(sliding_window_path, "r") as f:
+                self._scripts["sliding_window"] = f.read()
+        else:
+            # No fallback for sliding window - requires file
+            logger.warning("sliding_window.lua not found, sliding window algorithm disabled")
+
         logger.debug(f"Loaded {len(self._scripts)} Lua scripts")
 
     async def connect(self) -> None:
@@ -363,6 +372,113 @@ return {allowed, remaining, ttl * 1000}
         except redis.RedisError as e:
             logger.error(f"Failed to get token bucket usage for key {key}: {e}")
             raise BackendError(f"Failed to get usage statistics: {e}")
+
+    async def check_sliding_window(
+        self,
+        current_key: str,
+        previous_key: str,
+        max_requests: int,
+        window_seconds: int,
+        current_time: int,
+        cost: int = 1000,
+    ) -> RateLimitResult:
+        """
+        Check rate limit using sliding window algorithm.
+
+        This method executes the sliding window Lua script atomically,
+        combining current and previous windows with weighted average.
+
+        Args:
+            current_key: Redis key for current window
+            previous_key: Redis key for previous window
+            max_requests: Maximum requests allowed (with 1000x multiplier)
+            window_seconds: Size of the time window in seconds
+            current_time: Current Unix timestamp in seconds
+            cost: Tokens to consume (with 1000x multiplier, default 1000)
+
+        Returns:
+            RateLimitResult with allowed status and metadata
+
+        Raises:
+            BackendError: If Redis operation fails
+        """
+        if not self._redis or not self._connected:
+            raise BackendError("Redis not connected. Call connect() first.")
+
+        try:
+            # Try EVALSHA first for better performance
+            if "sliding_window" in self._script_shas:
+                try:
+                    result = await self._redis.evalsha(
+                        self._script_shas["sliding_window"],
+                        2,  # number of keys (current + previous)
+                        current_key.encode(),  # KEYS[1]
+                        previous_key.encode(),  # KEYS[2]
+                        str(int(max_requests)).encode(),  # ARGV[1]
+                        str(window_seconds).encode(),  # ARGV[2]
+                        str(current_time).encode(),  # ARGV[3]
+                        str(cost).encode(),  # ARGV[4]
+                    )
+                except redis.NoScriptError:
+                    # Script not in cache, fall back to EVAL
+                    logger.debug("Script not in cache, using EVAL")
+                    result = await self._execute_sliding_window_script(
+                        current_key, previous_key, max_requests, window_seconds, current_time, cost
+                    )
+            else:
+                # No SHA available, use EVAL
+                result = await self._execute_sliding_window_script(
+                    current_key, previous_key, max_requests, window_seconds, current_time, cost
+                )
+
+            # Parse result
+            if not isinstance(result, list) or len(result) != 3:
+                raise BackendError(f"Invalid script result: {result}")
+
+            allowed = bool(int(result[0]))
+            remaining = int(result[1])
+            retry_after_ms = int(result[2])
+
+            return RateLimitResult(
+                allowed=allowed,
+                remaining=remaining,
+                retry_after=retry_after_ms,
+            )
+
+        except redis.RedisError as e:
+            logger.error(f"Redis error during sliding window check: {e}")
+            raise BackendError(f"Sliding window check failed: {e}")
+        except Exception as e:
+            logger.error(f"Unexpected error during sliding window check: {e}")
+            raise BackendError(f"Unexpected error: {e}")
+
+    async def _execute_sliding_window_script(
+        self,
+        current_key: str,
+        previous_key: str,
+        max_requests: int,
+        window_seconds: int,
+        current_time: int,
+        cost: int = 1000,
+    ) -> Any:
+        """Execute sliding window Lua script with EVAL."""
+        if not self._redis:
+            raise BackendError("Redis not connected")
+
+        script = self._scripts.get("sliding_window")
+        if not script:
+            raise BackendError("Sliding window script not loaded")
+
+        return await self._redis.eval(
+            script,
+            2,  # number of keys
+            current_key.encode(),  # KEYS[1]
+            previous_key.encode(),  # KEYS[2]
+            str(int(max_requests)).encode(),  # ARGV[1]
+            str(window_seconds).encode(),  # ARGV[2]
+            str(current_time).encode(),  # ARGV[3]
+            str(cost).encode(),  # ARGV[4]
+        )
 
     async def reset(self, key: str) -> bool:
         """
