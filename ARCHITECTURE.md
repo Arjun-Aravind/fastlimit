@@ -126,8 +126,8 @@ Time    Thread A                Thread B
 ----    --------                --------
 t0      Read count: 99
 t1                              Read count: 99
-t2      Check: 99 < 100 ✓
-t3                              Check: 99 < 100 ✓
+t2      Check: 99 < 100 
+t3                              Check: 99 < 100 
 t4      Increment to 100
 t5                              Increment to 101 ← LIMIT EXCEEDED!
 ```
@@ -138,20 +138,20 @@ t5                              Increment to 101 ← LIMIT EXCEEDED!
 - **INCR/INCRBY**: Atomic increment operations
 
 **PostgreSQL**:
-- ❌ Requires transactions (overhead)
-- ❌ Row-level locks (slower)
-- ❌ Connection overhead (not designed for high-frequency operations)
-- ✅ Can work, but much slower
+- - Requires transactions (overhead)
+- - Row-level locks (slower)
+- - Connection overhead (not designed for high-frequency operations)
+- - Can work, but much slower
 
 **MongoDB**:
-- ❌ Eventual consistency issues
-- ❌ No native atomic increment + check
-- ❌ Higher latency
+- - Eventual consistency issues
+- - No native atomic increment + check
+- - Higher latency
 
 **In-Memory Dict**:
-- ❌ Not distributed (each worker has separate state)
-- ❌ Loses data on restart
-- ❌ No persistence
+- - Not distributed (each worker has separate state)
+- - Loses data on restart
+- - No persistence
 
 ### Requirement 2: Performance
 
@@ -170,53 +170,53 @@ Throughput Requirements:
 ```
 
 **Redis Performance**:
-- ✅ In-memory (microsecond access)
-- ✅ Single-threaded (no lock contention)
-- ✅ Optimized for small operations
-- ✅ 15,000+ checks/second easily
+- - In-memory (microsecond access)
+- - Single-threaded (no lock contention)
+- - Optimized for small operations
+- - 15,000+ checks/second easily
 
 **PostgreSQL Performance**:
-- ❌ Disk-based (millisecond access even with cache)
-- ❌ Connection overhead
-- ❌ ~500-1,000 checks/second typical
+- - Disk-based (millisecond access even with cache)
+- - Connection overhead
+- - ~500-1,000 checks/second typical
 
 ### Requirement 3: TTL (Automatic Expiration)
 
 Rate limit data should **automatically expire**. We don't want to manage cleanup manually.
 
 **Redis**:
-- ✅ Native TTL support (`EXPIRE`)
-- ✅ Automatic eviction
-- ✅ Memory-efficient
+- - Native TTL support (`EXPIRE`)
+- - Automatic eviction
+- - Memory-efficient
 
 **PostgreSQL**:
-- ❌ Requires manual cleanup (cron jobs)
-- ❌ Vacuum overhead
-- ❌ Complex to manage
+- - Requires manual cleanup (cron jobs)
+- - Vacuum overhead
+- - Complex to manage
 
 ### Requirement 4: Scalability
 
 Rate limiting should **scale horizontally** easily.
 
 **Redis**:
-- ✅ Redis Cluster for horizontal scaling
-- ✅ Minimal state (just counters)
-- ✅ Easy replication
+- - Redis Cluster for horizontal scaling
+- - Minimal state (just counters)
+- - Easy replication
 
 **PostgreSQL**:
-- ❌ Harder to scale writes
-- ❌ Replication lag issues
+- - Harder to scale writes
+- - Replication lag issues
 
 ### Decision Matrix
 
 | Feature | Redis | PostgreSQL | MongoDB | In-Memory |
 |---------|-------|------------|---------|-----------|
-| Atomic Operations | ✅ Lua | ⚠️ Transactions | ❌ Limited | ❌ Not distributed |
-| Performance | ✅ 15K+ req/s | ⚠️ 500-1K req/s | ⚠️ 2K req/s | ✅ Fast (but local) |
-| TTL Support | ✅ Native | ❌ Manual | ⚠️ Limited | ❌ Manual |
-| Latency | ✅ < 1ms | ⚠️ 5-10ms | ⚠️ 5-15ms | ✅ < 0.1ms (local) |
-| Horizontal Scaling | ✅ Easy | ⚠️ Complex | ✅ Easy | ❌ Not applicable |
-| Data Persistence | ⚠️ Optional | ✅ Durable | ✅ Durable | ❌ Volatile |
+| Atomic Operations | - Lua | - Transactions | - Limited | - Not distributed |
+| Performance | - 15K+ req/s | - 500-1K req/s | - 2K req/s | - Fast (but local) |
+| TTL Support | - Native | - Manual | - Limited | - Manual |
+| Latency | - < 1ms | - 5-10ms | - 5-15ms | - < 0.1ms (local) |
+| Horizontal Scaling | - Easy | - Complex | - Easy | - Not applicable |
+| Data Persistence | - Optional | - Durable | - Durable | - Volatile |
 
 **Conclusion**: Redis is the clear winner for rate limiting.
 
@@ -257,8 +257,8 @@ Time    Request A                  Request B
 ----    ---------                  ---------
 t0      GET → returns 99
 t1                                 GET → returns 99
-t2      Check: 99 < 100 ✓
-t3                                 Check: 99 < 100 ✓
+t2      Check: 99 < 100 
+t3                                 Check: 99 < 100 
 t4      INCR → now 100
 t5                                 INCR → now 101 ← EXCEEDED LIMIT!
 ```
@@ -415,7 +415,7 @@ local cost = tonumber(ARGV[2])          -- 1,000 (not 1)
 
 local current = redis.call('INCRBY', key, cost)  -- Adds 1,000
 
-if current <= max_requests then  -- 1,000 <= 100,000 ✓
+if current <= max_requests then  -- 1,000 <= 100,000 
     local remaining = max_requests - current  -- 99,000
     return {1, remaining, 0, 0}
 end
@@ -465,7 +465,7 @@ local tokens_to_add = (max_tokens * time_elapsed) / window_seconds
 |------------|-----------|----------------|-------|
 | 10 | 0.1 | 214,748,364/s | Too low precision |
 | 100 | 0.01 | 21,474,836/s | Still limiting |
-| 1000 | 0.001 | 2,147,483/s | Good balance ✓ |
+| 1000 | 0.001 | 2,147,483/s | Good balance  |
 | 10000 | 0.0001 | 214,748/s | Overkill |
 
 **Reasoning**:

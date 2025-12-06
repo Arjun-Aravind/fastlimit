@@ -89,3 +89,12 @@ docs/.doctrees/
 
 # Distribution
 .pypirc
+
+# Local documentation (not tracked)
+local_docs/
+
+# Temporary directory
+tmp/
+
+# Rope project
+.ropeproject/

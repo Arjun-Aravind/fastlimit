@@ -66,12 +66,12 @@ If this is your first contribution:
 
 ### Areas for Contribution
 
-- 🐛 **Bug Fixes**: Fix issues reported in the issue tracker
-- ✨ **Features**: Implement new rate limiting algorithms or features
-- 📚 **Documentation**: Improve README, guides, or docstrings
-- 🧪 **Tests**: Add test coverage or improve existing tests
-- ⚡ **Performance**: Optimize algorithms or Redis operations
-- 🎨 **Examples**: Create example integrations (FastAPI, Django, Flask)
+- - **Bug Fixes**: Fix issues reported in the issue tracker
+- - **Features**: Implement new rate limiting algorithms or features
+- - **Documentation**: Improve README, guides, or docstrings
+- - **Tests**: Add test coverage or improve existing tests
+- - **Performance**: Optimize algorithms or Redis operations
+- - **Examples**: Create example integrations (FastAPI, Django, Flask)
 
 ---
 
@@ -896,8 +896,8 @@ By contributing to FastLimit, you agree that your contributions will be licensed
 
 ---
 
-## Thank You! 🎉
+## Thank You! 
 
 Thank you for contributing to FastLimit! Your contributions help make rate limiting better for everyone.
 
-**Happy Coding!** 🚀
+**Happy Coding!** 

@@ -12,21 +12,18 @@ import uvicorn
 from datetime import datetime
 import os
 
-# Add parent directory to path
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from fastlimit import RateLimiter, RateLimitExceeded
 
-# Initialize FastAPI app
 app = FastAPI(
     title="FastLimit Demo API",
     description="Demonstration of rate limiting with FastLimit",
     version="1.0.0",
 )
 
-# Add CORS middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -35,7 +32,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Initialize rate limiter
 redis_url = os.getenv("REDIS_URL", "redis://localhost:6379")
 limiter = RateLimiter(redis_url=redis_url)
 
@@ -44,23 +40,19 @@ limiter = RateLimiter(redis_url=redis_url)
 async def startup_event():
     """Initialize rate limiter on startup."""
     await limiter.connect()
-    print(f"✅ Connected to Redis at {redis_url}")
+    print(f"Connected to Redis at {redis_url}")
 
 
 @app.on_event("shutdown")
 async def shutdown_event():
     """Clean up on shutdown."""
     await limiter.close()
-    print("👋 Disconnected from Redis")
+    print("Disconnected from Redis")
 
 
 @app.exception_handler(RateLimitExceeded)
 async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
-    """
-    Global handler for rate limit exceeded exceptions.
-    
-    Adds proper HTTP headers for client retry logic.
-    """
+    """Global handler for rate limit exceeded exceptions."""
     return JSONResponse(
         status_code=429,
         content={
@@ -77,16 +69,9 @@ async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
     )
 
 
-# ============================================================================
-# ENDPOINTS
-# ============================================================================
-
-
 @app.get("/")
 async def root():
-    """
-    Root endpoint - not rate limited.
-    """
+    """Root endpoint - not rate limited."""
     return {
         "message": "Welcome to FastLimit Demo API",
         "docs": "/docs",
@@ -103,9 +88,7 @@ async def root():
 
 @app.get("/api/public")
 async def public_endpoint():
-    """
-    Public endpoint without rate limiting.
-    """
+    """Public endpoint without rate limiting."""
     return {
         "message": "This endpoint is not rate limited",
         "timestamp": datetime.utcnow().isoformat(),
@@ -220,9 +203,7 @@ async def expensive_operation(request: Request):
 
 @app.get("/api/status")
 async def status_endpoint():
-    """
-    Check API and rate limiter status.
-    """
+    """Check API and rate limiter status."""
     health = await limiter.health_check()
     
     return {
@@ -235,11 +216,7 @@ async def status_endpoint():
 
 @app.get("/api/usage/{user_id}")
 async def usage_endpoint(user_id: str):
-    """
-    Check rate limit usage for a specific user.
-    
-    This endpoint itself is not rate limited.
-    """
+    """Check rate limit usage for a specific user."""
     try:
         usage = await limiter.get_usage(
             key=f"user:{user_id}",
@@ -267,12 +244,7 @@ async def usage_endpoint(user_id: str):
 
 @app.post("/api/reset/{user_id}")
 async def reset_endpoint(user_id: str, request: Request):
-    """
-    Reset rate limit for a specific user (admin only).
-    
-    In a real application, this would require authentication.
-    """
-    # Simple auth check (in production, use proper authentication)
+    """Reset rate limit for a specific user (admin only)."""
     admin_key = request.headers.get("X-Admin-Key")
     if admin_key != "secret-admin-key":
         raise HTTPException(status_code=403, detail="Unauthorized")
@@ -287,7 +259,6 @@ async def reset_endpoint(user_id: str, request: Request):
 
 
 if __name__ == "__main__":
-    # Run the application
     uvicorn.run(
         "examples.fastapi_app:app",
         host="0.0.0.0",

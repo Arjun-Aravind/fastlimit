@@ -30,17 +30,17 @@ class PerformanceBenchmark:
         """Setup benchmark environment."""
         self.limiter = RateLimiter(redis_url=self.redis_url)
         await self.limiter.connect()
-        print("✅ Connected to Redis")
-        print("🔬 Starting performance benchmarks...\n")
+        print("Connected to Redis")
+        print("Starting performance benchmarks...\n")
     
     async def teardown(self):
         """Cleanup after benchmarks."""
         await self.limiter.close()
-        print("\n✅ Benchmarks completed")
+        print("\nBenchmarks completed")
     
     async def benchmark_throughput(self, requests: int = 10000):
         """Test maximum throughput."""
-        print(f"📊 Throughput Test ({requests} requests)")
+        print(f"Throughput Test ({requests} requests)")
         print("-" * 50)
         
         rate = "100000/minute"  # Very high limit to avoid rate limiting
@@ -79,7 +79,7 @@ class PerformanceBenchmark:
     
     async def benchmark_latency(self, samples: int = 1000):
         """Test latency distribution."""
-        print(f"⏱️  Latency Test ({samples} samples)")
+        print(f"Latency Test ({samples} samples)")
         print("-" * 50)
         
         rate = "100000/minute"
@@ -116,7 +116,7 @@ class PerformanceBenchmark:
     
     async def benchmark_concurrent_clients(self):
         """Test with varying number of concurrent clients."""
-        print("👥 Concurrent Clients Test")
+        print("Concurrent Clients Test")
         print("-" * 50)
         
         client_counts = [1, 10, 50, 100, 500, 1000]
@@ -153,7 +153,7 @@ class PerformanceBenchmark:
     
     async def benchmark_rate_limiting_accuracy(self):
         """Test rate limiting accuracy."""
-        print("🎯 Rate Limiting Accuracy Test")
+        print("Rate Limiting Accuracy Test")
         print("-" * 50)
         
         test_cases = [
@@ -184,7 +184,7 @@ class PerformanceBenchmark:
     
     async def benchmark_memory_usage(self):
         """Estimate memory usage per key."""
-        print("💾 Memory Usage Test")
+        print("Memory Usage Test")
         print("-" * 50)
         
         # Create many keys
@@ -214,7 +214,7 @@ class PerformanceBenchmark:
     
     async def benchmark_multi_tenant(self):
         """Test multi-tenant performance."""
-        print("🏢 Multi-Tenant Performance Test")
+        print("Multi-Tenant Performance Test")
         print("-" * 50)
         
         num_tenants = 100
@@ -259,30 +259,30 @@ class PerformanceBenchmark:
     def print_summary(self):
         """Print benchmark summary."""
         print("=" * 60)
-        print("📈 BENCHMARK SUMMARY")
+        print("BENCHMARK SUMMARY")
         print("=" * 60)
         
         if "throughput" in self.results:
             t = self.results["throughput"]
-            print(f"✓ Throughput: {t['concurrent']:.1f} req/s "
+            print(f"Throughput: {t['concurrent']:.1f} req/s "
                   f"({t['speedup']:.1f}x speedup)")
         
         if "latency" in self.results:
             l = self.results["latency"]
-            print(f"✓ Latency: {l['p99']:.2f}ms (p99), "
+            print(f"Latency: {l['p99']:.2f}ms (p99), "
                   f"{l['median']:.2f}ms (median)")
         
         if "concurrent_clients" in self.results:
             max_clients = self.results["concurrent_clients"][-1]
-            print(f"✓ Concurrent clients: {max_clients['clients']} "
+            print(f"Concurrent clients: {max_clients['clients']} "
                   f"@ {max_clients['throughput']:.1f} req/s")
         
         if "multi_tenant" in self.results:
             mt = self.results["multi_tenant"]
-            print(f"✓ Multi-tenant: {mt['tenants']} tenants "
+            print(f"Multi-tenant: {mt['tenants']} tenants "
                   f"@ {mt['throughput']:.1f} req/s")
         
-        print("\n✅ All benchmarks passed performance targets!")
+        print("\nAll benchmarks passed performance targets.")
 
 
 async def main():
@@ -306,7 +306,7 @@ async def main():
         benchmark.print_summary()
         
     except Exception as e:
-        print(f"\n❌ Benchmark failed: {e}")
+        print(f"\nBenchmark failed: {e}")
     finally:
         await benchmark.teardown()
 

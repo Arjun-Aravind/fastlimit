@@ -20,9 +20,9 @@ classifiers = [
     "Programming Language :: Python :: 3.11",
     "Programming Language :: Python :: 3.12",
 ]
-homepage = "https://github.com/yourusername/fastlimit"
-repository = "https://github.com/yourusername/fastlimit"
-documentation = "https://github.com/yourusername/fastlimit#readme"
+homepage = "https://github.com/Arjun-Aravind/fastlimit"
+repository = "https://github.com/Arjun-Aravind/fastlimit"
+documentation = "https://github.com/Arjun-Aravind/fastlimit#readme"
 
 [tool.poetry.dependencies]
 python = "^3.9"

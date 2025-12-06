@@ -152,14 +152,14 @@ Time: 14:36:00 (new window starts)
 
 ### Advantages
 
-✅ **Simplest to understand**: Just a counter that resets
-✅ **Lowest memory**: Only 1 Redis key (~100 bytes)
-✅ **Fastest**: Simple INCRBY operation (15,000+ req/s)
-✅ **Predictable**: Easy to reason about behavior
+- **Simplest to understand**: Just a counter that resets
+- **Lowest memory**: Only 1 Redis key (~100 bytes)
+- **Fastest**: Simple INCRBY operation (15,000+ req/s)
+- **Predictable**: Easy to reason about behavior
 
 ### Disadvantages
 
-❌ **Boundary Bursts**: Users can make 2× requests at window boundaries
+- **Boundary Bursts**: Users can make 2× requests at window boundaries
 
 **Boundary Burst Example**:
 ```
@@ -172,16 +172,16 @@ Limit: 100/minute
 Result: 200 requests in 2 seconds! (2× the intended rate)
 ```
 
-❌ **Less smooth**: Traffic comes in bursts at window boundaries
-❌ **Unfair**: Users who hit the window edge have an advantage
+- **Less smooth**: Traffic comes in bursts at window boundaries
+- **Unfair**: Users who hit the window edge have an advantage
 
 ### When to Use Fixed Window
 
-- ✅ Simple use cases where boundary bursts are acceptable
-- ✅ High-performance scenarios (need maximum throughput)
-- ✅ Internal rate limiting (between your own services)
-- ✅ Memory-constrained environments
-- ✅ When you need predictable, easy-to-debug behavior
+- - Simple use cases where boundary bursts are acceptable
+- - High-performance scenarios (need maximum throughput)
+- - Internal rate limiting (between your own services)
+- - Memory-constrained environments
+- - When you need predictable, easy-to-debug behavior
 
 ---
 
@@ -302,26 +302,26 @@ Request #103 (14:01:15):
 
 ### Advantages
 
-✅ **Smooth Rate Limiting**: Continuous refill prevents bursts
-✅ **No Boundary Bursts**: No window edges to exploit
-✅ **Controlled Bursts**: Can consume full bucket if available
-✅ **Natural Throttling**: Automatically spreads out requests
-✅ **Intuitive**: Easy to explain to users ("you have X tokens")
+- **Smooth Rate Limiting**: Continuous refill prevents bursts
+- **No Boundary Bursts**: No window edges to exploit
+- **Controlled Bursts**: Can consume full bucket if available
+- **Natural Throttling**: Automatically spreads out requests
+- **Intuitive**: Easy to explain to users ("you have X tokens")
 
 ### Disadvantages
 
-❌ **More Memory**: Needs hash with 2 fields (~150 bytes)
-❌ **Slightly Slower**: More complex calculation (12,000+ req/s)
-❌ **Floating Point**: Requires careful handling of decimal tokens
-❌ **State Management**: Must track last_refill timestamp
+- **More Memory**: Needs hash with 2 fields (~150 bytes)
+- **Slightly Slower**: More complex calculation (12,000+ req/s)
+- **Floating Point**: Requires careful handling of decimal tokens
+- **State Management**: Must track last_refill timestamp
 
 ### When to Use Token Bucket
 
-- ✅ Public APIs where smoothness matters
-- ✅ When you want to allow controlled bursts
-- ✅ User-facing services (better UX)
-- ✅ When preventing boundary bursts is critical
-- ✅ APIs with expensive operations (e.g., ML inference, video encoding)
+- - Public APIs where smoothness matters
+- - When you want to allow controlled bursts
+- - User-facing services (better UX)
+- - When preventing boundary bursts is critical
+- - APIs with expensive operations (e.g., ML inference, video encoding)
 
 ---
 
@@ -466,26 +466,26 @@ Result: Sliding window smooths the transition, no 2× burst!
 
 ### Advantages
 
-✅ **Most Accurate**: Smoothly accounts for request distribution
-✅ **No Boundary Bursts**: Weighted average prevents exploitation
-✅ **Fairest**: All users treated equally regardless of timing
-✅ **Predictable**: Request allowance decreases linearly
-✅ **Better UX**: More consistent experience for users
+- **Most Accurate**: Smoothly accounts for request distribution
+- **No Boundary Bursts**: Weighted average prevents exploitation
+- **Fairest**: All users treated equally regardless of timing
+- **Predictable**: Request allowance decreases linearly
+- **Better UX**: More consistent experience for users
 
 ### Disadvantages
 
-❌ **Most Memory**: Requires 2 Redis keys (~200 bytes)
-❌ **Slowest**: More complex calculation (8,000+ req/s, still fast!)
-❌ **Implementation Complexity**: Harder to implement correctly
-❌ **Harder to Debug**: Weighted count not immediately obvious
+- **Most Memory**: Requires 2 Redis keys (~200 bytes)
+- **Slowest**: More complex calculation (8,000+ req/s, still fast!)
+- **Implementation Complexity**: Harder to implement correctly
+- **Harder to Debug**: Weighted count not immediately obvious
 
 ### When to Use Sliding Window
 
-- ✅ Public APIs where fairness is critical
-- ✅ When you must prevent boundary bursts
-- ✅ High-security scenarios (prevent gaming the system)
-- ✅ Paid tiers with strict SLAs
-- ✅ When accuracy matters more than raw performance
+- - Public APIs where fairness is critical
+- - When you must prevent boundary bursts
+- - High-security scenarios (prevent gaming the system)
+- - Paid tiers with strict SLAs
+- - When accuracy matters more than raw performance
 
 ---
 
@@ -495,13 +495,13 @@ Result: Sliding window smooths the transition, no 2× burst!
 
 | Feature | Fixed Window | Token Bucket | Sliding Window |
 |---------|-------------|--------------|----------------|
-| **Accuracy** | ⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ |
-| **Performance** | ⭐⭐⭐⭐⭐ (15K+ req/s) | ⭐⭐⭐⭐ (12K+ req/s) | ⭐⭐⭐ (8K+ req/s) |
-| **Memory** | ⭐⭐⭐⭐⭐ (1 key, ~100 bytes) | ⭐⭐⭐⭐ (1 hash, ~150 bytes) | ⭐⭐⭐ (2 keys, ~200 bytes) |
-| **Simplicity** | ⭐⭐⭐⭐⭐ | ⭐⭐⭐ | ⭐⭐ |
-| **Burst Handling** | ❌ Boundary bursts | ✅ Controlled bursts | ✅ No bursts |
-| **Smoothness** | ⭐⭐ | ⭐⭐⭐⭐⭐ | ⭐⭐⭐⭐ |
-| **Fairness** | ⭐⭐ | ⭐⭐⭐⭐ | ⭐⭐⭐⭐⭐ |
+| **Accuracy** | - | - | - |
+| **Performance** | - (15K+ req/s) | - (12K+ req/s) | - (8K+ req/s) |
+| **Memory** | - (1 key, ~100 bytes) | - (1 hash, ~150 bytes) | - (2 keys, ~200 bytes) |
+| **Simplicity** | - | - | - |
+| **Burst Handling** | - Boundary bursts | - Controlled bursts | - No bursts |
+| **Smoothness** | - | - | - |
+| **Fairness** | - | - | - |
 
 ### Boundary Burst Test
 
@@ -511,21 +511,21 @@ Result: Sliding window smooths the transition, no 2× burst!
 Fixed Window:
   13:59:59 → 100 requests (allowed)
   14:00:00 → 100 requests (allowed) ← NEW WINDOW
-  Total: 200 requests in 1 second (200% of limit!) ❌
+  Total: 200 requests in 1 second (200% of limit!) No
 
 Token Bucket:
   13:59:59 → 100 requests (drains bucket to 0)
   14:00:00 → Request denied (no tokens)
   14:00:01 → Request denied (only 1.667 tokens refilled)
   14:00:10 → 16 requests allowed (16.67 tokens)
-  Total: 100 requests burst, then throttled ✅
+  Total: 100 requests burst, then throttled Yes
 
 Sliding Window:
   13:59:59 → 100 requests in current window
   14:00:00 → Weighted: (100 × 1.0) + 0 = 100 → FULL
   14:00:30 → Weighted: (100 × 0.5) + 0 = 50 → 50 allowed
   14:01:00 → Weighted: (0 × 1.0) + 50 = 50 → 50 allowed
-  Total: Smooth transition, no burst ✅
+  Total: Smooth transition, no burst Yes
 ```
 
 ### Memory Comparison
@@ -865,25 +865,25 @@ Sliding Window:
 ## Summary: Decision Matrix
 
 ### Choose Fixed Window if:
-- ✅ You need maximum performance (15K+ req/s)
-- ✅ You have memory constraints
-- ✅ Boundary bursts are acceptable
-- ✅ Internal/non-critical rate limiting
-- ✅ You value simplicity
+- - You need maximum performance (15K+ req/s)
+- - You have memory constraints
+- - Boundary bursts are acceptable
+- - Internal/non-critical rate limiting
+- - You value simplicity
 
 ### Choose Token Bucket if:
-- ✅ You need smooth rate limiting
-- ✅ You want to allow controlled bursts
-- ✅ You have cost-based operations
-- ✅ Public API with good UX
-- ✅ You need to prevent boundary bursts
+- - You need smooth rate limiting
+- - You want to allow controlled bursts
+- - You have cost-based operations
+- - Public API with good UX
+- - You need to prevent boundary bursts
 
 ### Choose Sliding Window if:
-- ✅ You need maximum accuracy
-- ✅ You must prevent all burst scenarios
-- ✅ Fairness is critical
-- ✅ You have strict SLAs
-- ✅ Security/compliance requirements
+- - You need maximum accuracy
+- - You must prevent all burst scenarios
+- - Fairness is critical
+- - You have strict SLAs
+- - Security/compliance requirements
 
 ---
 

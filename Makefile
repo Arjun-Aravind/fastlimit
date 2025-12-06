@@ -9,7 +9,7 @@ YELLOW := \033[1;33m
 NC := \033[0m # No Color
 
 help: ## Show this help message
-	@echo "$(GREEN)FastLimit - Production-ready Rate Limiting Library$(NC)"
+	@echo "$(GREEN)FastLimit - Rate Limiting Library$(NC)"
 	@echo ""
 	@echo "Available commands:"
 	@grep -E '^[a-zA-Z_-]+:.*?## .*$$' $(MAKEFILE_LIST) | sort | awk 'BEGIN {FS = ":.*?## "}; {printf "  $(YELLOW)%-15s$(NC) %s\n", $$1, $$2}'

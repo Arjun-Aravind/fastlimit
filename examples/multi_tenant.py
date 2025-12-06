@@ -12,21 +12,18 @@ import uvicorn
 from datetime import datetime
 import os
 
-# Add parent directory to path
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from fastlimit import RateLimiter, RateLimitExceeded
 
-# Initialize FastAPI app
 app = FastAPI(
     title="Multi-Tenant API",
     description="Example of multi-tenant rate limiting with tiers",
     version="1.0.0",
 )
 
-# Initialize rate limiter
 redis_url = os.getenv("REDIS_URL", "redis://localhost:6379")
 limiter = RateLimiter(redis_url=redis_url)
 
@@ -76,8 +73,8 @@ def get_tenant_info(api_key: str) -> tuple:
 async def startup_event():
     """Initialize rate limiter on startup."""
     await limiter.connect()
-    print(f"✅ Connected to Redis")
-    print(f"📊 Loaded {len(TENANT_DATABASE)} tenants")
+    print(f"Connected to Redis")
+    print(f"Loaded {len(TENANT_DATABASE)} tenants")
 
 
 @app.on_event("shutdown")
@@ -106,11 +103,6 @@ async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
     )
 
 
-# ============================================================================
-# ENDPOINTS
-# ============================================================================
-
-
 @app.get("/")
 async def root():
     """API documentation."""
@@ -132,16 +124,13 @@ async def root():
 
 @app.get("/api/data")
 async def get_data(request: Request, x_api_key: str = Header(None)):
-    """
-    Get data endpoint with tier-based rate limiting.
-    """
+    """Get data endpoint with tier-based rate limiting."""
     if not x_api_key:
         raise HTTPException(status_code=401, detail="API key required")
     
     tenant_id, tier, tenant_name = get_tenant_info(x_api_key)
     limit = TIER_LIMITS[tier]["data"]
     
-    # Apply rate limiting
     await limiter.check(
         key=tenant_id,
         rate=limit,
@@ -163,23 +152,19 @@ async def get_data(request: Request, x_api_key: str = Header(None)):
 
 @app.get("/api/analytics")
 async def get_analytics(request: Request, x_api_key: str = Header(None)):
-    """
-    Analytics endpoint with tier-based rate limiting.
-    """
+    """Analytics endpoint with tier-based rate limiting."""
     if not x_api_key:
         raise HTTPException(status_code=401, detail="API key required")
     
     tenant_id, tier, tenant_name = get_tenant_info(x_api_key)
     limit = TIER_LIMITS[tier]["analytics"]
     
-    # Apply rate limiting
     await limiter.check(
         key=tenant_id,
         rate=limit,
-        tenant_type=f"{tier}:analytics"  # Different namespace for analytics
+        tenant_type=f"{tier}:analytics"
     )
     
-    # Simulate different data based on tier
     if tier == "enterprise":
         analytics_data = {
             "detailed_metrics": True,
@@ -194,7 +179,7 @@ async def get_analytics(request: Request, x_api_key: str = Header(None)):
             "historical_data": "90 days",
             "custom_reports": False,
         }
-    else:  # free
+    else:
         analytics_data = {
             "detailed_metrics": False,
             "real_time": False,
@@ -213,16 +198,13 @@ async def get_analytics(request: Request, x_api_key: str = Header(None)):
 
 @app.post("/api/export")
 async def export_data(request: Request, x_api_key: str = Header(None)):
-    """
-    Export endpoint with strict tier-based rate limiting.
-    """
+    """Export endpoint with strict tier-based rate limiting."""
     if not x_api_key:
         raise HTTPException(status_code=401, detail="API key required")
     
     tenant_id, tier, tenant_name = get_tenant_info(x_api_key)
     limit = TIER_LIMITS[tier]["export"]
     
-    # Apply rate limiting with higher cost for exports
     await limiter.check(
         key=tenant_id,
         rate=limit,
@@ -242,15 +224,12 @@ async def export_data(request: Request, x_api_key: str = Header(None)):
 
 @app.get("/api/usage")
 async def check_usage(x_api_key: str = Header(None)):
-    """
-    Check current rate limit usage for the tenant.
-    """
+    """Check current rate limit usage for the tenant."""
     if not x_api_key:
         raise HTTPException(status_code=401, detail="API key required")
     
     tenant_id, tier, tenant_name = get_tenant_info(x_api_key)
     
-    # Get usage for all endpoints
     usage_data = {}
     
     for endpoint, limit in TIER_LIMITS[tier].items():
@@ -295,9 +274,7 @@ async def upgrade_tier(
     x_api_key: str = Header(None),
     x_admin_key: str = Header(None)
 ):
-    """
-    Simulate tier upgrade (admin only).
-    """
+    """Simulate tier upgrade (admin only)."""
     if not x_api_key:
         raise HTTPException(status_code=401, detail="API key required")
     
@@ -309,10 +286,8 @@ async def upgrade_tier(
     
     tenant_id, current_tier, tenant_name = get_tenant_info(x_api_key)
     
-    # Update tenant tier
     TENANT_DATABASE[tenant_id]["tier"] = new_tier
     
-    # Reset rate limits for the tenant
     await limiter.reset(key=tenant_id)
     
     return {
@@ -327,9 +302,7 @@ async def upgrade_tier(
 
 @app.get("/api/tenants")
 async def list_tenants(x_admin_key: str = Header(None)):
-    """
-    List all tenants (admin only).
-    """
+    """List all tenants (admin only)."""
     if x_admin_key != "admin-secret":
         raise HTTPException(status_code=403, detail="Admin key required")
     
