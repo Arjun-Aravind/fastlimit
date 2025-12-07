@@ -3,6 +3,7 @@ Redis backend implementation for rate limiting.
 """
 
 import redis.asyncio as redis
+from redis.exceptions import RedisError, ConnectionError as RedisConnectionError, NoScriptError
 from pathlib import Path
 from typing import Optional, NamedTuple, Dict, Any
 import logging
@@ -136,7 +137,7 @@ return {allowed, remaining, ttl * 1000}
             self._connected = True
             logger.info(f"Connected to Redis at {self.config.redis_url}")
 
-        except redis.ConnectionError as e:
+        except RedisConnectionError as e:
             raise BackendError(f"Failed to connect to Redis: {e}")
         except Exception as e:
             raise BackendError(f"Unexpected error during Redis connection: {e}")
@@ -200,7 +201,7 @@ return {allowed, remaining, ttl * 1000}
                         str(int(time.time())).encode(),  # ARGV[3] - timestamp
                         str(cost).encode(),  # ARGV[4] - cost
                     )
-                except redis.NoScriptError:
+                except NoScriptError:
                     # Script not in cache, fall back to EVAL
                     logger.debug("Script not in cache, using EVAL")
                     result = await self._execute_script("fixed_window", key, max_requests, window_seconds, cost)
@@ -222,7 +223,7 @@ return {allowed, remaining, ttl * 1000}
                 retry_after=retry_after_ms,
             )
 
-        except redis.RedisError as e:
+        except RedisError as e:
             logger.error(f"Redis error during rate limit check: {e}")
             raise BackendError(f"Rate limit check failed: {e}")
         except Exception as e:
@@ -288,7 +289,7 @@ return {allowed, remaining, ttl * 1000}
                         str(current_time).encode(),  # ARGV[3]
                         str(cost).encode(),  # ARGV[4]
                     )
-                except redis.NoScriptError:
+                except NoScriptError:
                     # Script not in cache, fall back to EVAL
                     logger.debug("Script not in cache, using EVAL")
                     result = await self._execute_token_bucket_script(
@@ -314,7 +315,7 @@ return {allowed, remaining, ttl * 1000}
                 retry_after=retry_after_ms,
             )
 
-        except redis.RedisError as e:
+        except RedisError as e:
             logger.error(f"Redis error during token bucket check: {e}")
             raise BackendError(f"Token bucket check failed: {e}")
         except Exception as e:
@@ -369,7 +370,7 @@ return {allowed, remaining, ttl * 1000}
                 "tokens": tokens,
                 "last_refill": last_refill,
             }
-        except redis.RedisError as e:
+        except RedisError as e:
             logger.error(f"Failed to get token bucket usage for key {key}: {e}")
             raise BackendError(f"Failed to get usage statistics: {e}")
 
@@ -419,7 +420,7 @@ return {allowed, remaining, ttl * 1000}
                         str(current_time).encode(),  # ARGV[3]
                         str(cost).encode(),  # ARGV[4]
                     )
-                except redis.NoScriptError:
+                except NoScriptError:
                     # Script not in cache, fall back to EVAL
                     logger.debug("Script not in cache, using EVAL")
                     result = await self._execute_sliding_window_script(
@@ -445,7 +446,7 @@ return {allowed, remaining, ttl * 1000}
                 retry_after=retry_after_ms,
             )
 
-        except redis.RedisError as e:
+        except RedisError as e:
             logger.error(f"Redis error during sliding window check: {e}")
             raise BackendError(f"Sliding window check failed: {e}")
         except Exception as e:
@@ -499,7 +500,7 @@ return {allowed, remaining, ttl * 1000}
         try:
             result = await self._redis.delete(key)
             return bool(result)
-        except redis.RedisError as e:
+        except RedisError as e:
             logger.error(f"Failed to reset key {key}: {e}")
             raise BackendError(f"Failed to reset rate limit: {e}")
 
@@ -533,7 +534,7 @@ return {allowed, remaining, ttl * 1000}
                 "current": current,
                 "ttl": ttl,
             }
-        except redis.RedisError as e:
+        except RedisError as e:
             logger.error(f"Failed to get usage for key {key}: {e}")
             raise BackendError(f"Failed to get usage statistics: {e}")
 
