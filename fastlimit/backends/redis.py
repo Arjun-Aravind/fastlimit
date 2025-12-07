@@ -538,6 +538,43 @@ return {allowed, remaining, ttl * 1000}
             logger.error(f"Failed to get usage for key {key}: {e}")
             raise BackendError(f"Failed to get usage statistics: {e}")
 
+    async def get_redis_time(self) -> tuple[int, int]:
+        """
+        Get current time from Redis server.
+
+        This is important for distributed deployments where application
+        servers may have clock skew. Using Redis time ensures consistent
+        window boundaries across all instances.
+
+        Returns:
+            Tuple of (unix_timestamp_seconds, microseconds)
+
+        Raises:
+            BackendError: If Redis operation fails
+        """
+        if not self._redis or not self._connected:
+            raise BackendError("Redis not connected")
+
+        try:
+            result = await self._redis.time()
+            return (int(result[0]), int(result[1]))
+        except RedisError as e:
+            logger.error(f"Failed to get Redis time: {e}")
+            raise BackendError(f"Failed to get Redis time: {e}")
+
+    async def get_redis_time_ms(self) -> int:
+        """
+        Get current time from Redis server in milliseconds.
+
+        Returns:
+            Unix timestamp in milliseconds
+
+        Raises:
+            BackendError: If Redis operation fails
+        """
+        seconds, microseconds = await self.get_redis_time()
+        return seconds * 1000 + microseconds // 1000
+
     async def health_check(self) -> bool:
         """
         Check if Redis connection is healthy.
