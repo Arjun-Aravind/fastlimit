@@ -135,7 +135,8 @@ return {allowed, remaining, ttl * 1000}
             await self._register_scripts()
 
             self._connected = True
-            logger.info(f"Connected to Redis at {self.config.redis_url}")
+            # Redact password from URL before logging
+            logger.info(f"Connected to Redis at {_redact_redis_url(self.config.redis_url)}")
 
         except RedisConnectionError as e:
             raise BackendError(f"Failed to connect to Redis: {e}")
@@ -590,3 +591,47 @@ return {allowed, remaining, ttl * 1000}
             return True
         except:
             return False
+
+
+def _redact_redis_url(url: str) -> str:
+    """
+    Redact password from Redis URL for safe logging.
+
+    Args:
+        url: Redis connection URL (may contain password)
+
+    Returns:
+        URL with password replaced by [REDACTED]
+
+    Examples:
+        >>> _redact_redis_url("redis://localhost:6379")
+        'redis://localhost:6379'
+
+        >>> _redact_redis_url("redis://:secret@localhost:6379")
+        'redis://:[REDACTED]@localhost:6379'
+
+        >>> _redact_redis_url("redis://user:password@localhost:6379")
+        'redis://user:[REDACTED]@localhost:6379'
+    """
+    from urllib.parse import urlparse, urlunparse
+
+    try:
+        parsed = urlparse(url)
+        if parsed.password:
+            # Replace password with [REDACTED]
+            # netloc format: user:password@host:port
+            if parsed.username:
+                new_netloc = f"{parsed.username}:[REDACTED]@{parsed.hostname}"
+            else:
+                new_netloc = f":[REDACTED]@{parsed.hostname}"
+
+            if parsed.port:
+                new_netloc += f":{parsed.port}"
+
+            # Rebuild URL with redacted password
+            redacted = parsed._replace(netloc=new_netloc)
+            return urlunparse(redacted)
+        return url
+    except Exception:
+        # If parsing fails, return a safe generic message
+        return "redis://[URL_PARSE_ERROR]"
