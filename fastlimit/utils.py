@@ -75,41 +75,63 @@ def generate_key(
     Creates a hierarchical key structure for efficient Redis operations
     and clear organization of rate limit data.
 
+    Uses URL-safe encoding to prevent key collisions while keeping keys readable.
+    This is important because simple character replacement (e.g., : -> _) can
+    cause different identifiers to map to the same key.
+
     Args:
         prefix: Key prefix (e.g., "ratelimit")
         identifier: Unique identifier (e.g., IP address, user ID)
         tenant_type: Tenant type/tier (e.g., "free", "premium", "enterprise")
-        time_window: Time window identifier (e.g., "2024-11-01-14:35")
+        time_window: Time window identifier (e.g., "1700000100")
 
     Returns:
         Formatted Redis key
 
     Examples:
-        >>> generate_key("ratelimit", "192.168.1.1", "free", "2024-11-01-14:35")
-        'ratelimit:192_168_1_1:free:2024-11-01-14:35'
-    """
-    # Sanitize identifier to prevent key injection and Redis key issues
-    # Replace problematic characters with underscores
-    safe_id = (
-        identifier.replace(":", "_")
-        .replace(" ", "_")
-        .replace("/", "_")
-        .replace("\\", "_")
-        .replace("[", "_")
-        .replace("]", "_")
-        .replace("{", "_")
-        .replace("}", "_")
-        .replace("*", "_")
-        .replace("?", "_")
-        .replace(".", "_")  # Also replace dots for cleaner keys
-    )
+        >>> generate_key("ratelimit", "192.168.1.1", "free", "1700000100")
+        'ratelimit:192.168.1.1:free:1700000100'
 
-    # Ensure tenant_type is also safe
-    safe_tenant = tenant_type.replace(":", "_").replace(" ", "_")
+        >>> generate_key("ratelimit", "user:123", "premium", "1700000100")
+        'ratelimit:user%3A123:premium:1700000100'  # Colon encoded to prevent collision
+    """
+    # Use URL-safe encoding for identifier and tenant_type
+    # This prevents collisions: "a:b" != "a_b" after encoding
+    safe_id = _url_encode_key_component(identifier)
+    safe_tenant = _url_encode_key_component(tenant_type)
 
     # Generate the key and apply hash optimization for long keys
     full_key = f"{prefix}:{safe_id}:{safe_tenant}:{time_window}"
     return hash_key(full_key, max_length=200)
+
+
+def _url_encode_key_component(value: str) -> str:
+    """
+    URL-encode a key component to prevent Redis key issues and collisions.
+
+    Only encodes characters that would cause issues:
+    - Colon (:) - used as key delimiter
+    - Space ( ) - causes parsing issues
+    - Special Redis pattern chars (* ? [ ] { })
+
+    Args:
+        value: The string to encode
+
+    Returns:
+        URL-safe encoded string
+
+    Examples:
+        >>> _url_encode_key_component("user:123")
+        'user%3A123'
+
+        >>> _url_encode_key_component("normal_key")
+        'normal_key'
+    """
+    from urllib.parse import quote
+
+    # Encode only problematic characters, keep alphanumeric and common safe chars
+    # safe='...' means these characters will NOT be encoded
+    return quote(value, safe='-_.~')
 
 
 def get_time_window(window_seconds: int) -> str:
