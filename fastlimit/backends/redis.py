@@ -56,21 +56,25 @@ class RedisBackend:
                 self._scripts["fixed_window"] = f.read()
         else:
             # Fallback inline script if file doesn't exist
+            # NOTE: This must stay in sync with scripts/fixed_window.lua
             self._scripts["fixed_window"] = """
 -- Fixed Window Rate Limiting Script (Inline Fallback)
 local key = KEYS[1]
 local max_requests = tonumber(ARGV[1])
 local window_seconds = tonumber(ARGV[2])
+local window_end = tonumber(ARGV[3])
+local cost = tonumber(ARGV[4]) or 1000
 
-local current = redis.call('INCR', key)
+local current = redis.call('INCRBY', key, cost)
 
-if current == 1 then
-    redis.call('EXPIRE', key, window_seconds)
+if current == cost then
+    redis.call('EXPIREAT', key, window_end)
 end
 
 local ttl = redis.call('TTL', key)
 if ttl < 0 then
     ttl = window_seconds
+    redis.call('EXPIREAT', key, window_end)
 end
 
 local allowed = 0
@@ -166,7 +170,7 @@ return {allowed, remaining, ttl * 1000}
             logger.info("Closed Redis connection")
 
     async def check_fixed_window(
-        self, key: str, max_requests: int, window_seconds: int, cost: int = 1000
+        self, key: str, max_requests: int, window_seconds: int, window_end: int, cost: int = 1000
     ) -> RateLimitResult:
         """
         Check rate limit using fixed window algorithm.
@@ -178,6 +182,7 @@ return {allowed, remaining, ttl * 1000}
             key: Rate limit key (should be pre-formatted)
             max_requests: Maximum requests allowed (with 1000x multiplier)
             window_seconds: Size of the time window in seconds
+            window_end: Unix timestamp when this window expires (for EXPIREAT)
             cost: Cost of this request (with 1000x multiplier, default 1000 = cost of 1)
 
         Returns:
@@ -199,16 +204,16 @@ return {allowed, remaining, ttl * 1000}
                         key.encode(),  # KEYS[1]
                         str(max_requests).encode(),  # ARGV[1]
                         str(window_seconds).encode(),  # ARGV[2]
-                        str(int(time.time())).encode(),  # ARGV[3] - timestamp
+                        str(window_end).encode(),  # ARGV[3] - window end timestamp
                         str(cost).encode(),  # ARGV[4] - cost
                     )
                 except NoScriptError:
                     # Script not in cache, fall back to EVAL
                     logger.debug("Script not in cache, using EVAL")
-                    result = await self._execute_script("fixed_window", key, max_requests, window_seconds, cost)
+                    result = await self._execute_script("fixed_window", key, max_requests, window_seconds, window_end, cost)
             else:
                 # No SHA available, use EVAL
-                result = await self._execute_script("fixed_window", key, max_requests, window_seconds, cost)
+                result = await self._execute_script("fixed_window", key, max_requests, window_seconds, window_end, cost)
 
             # Parse result
             if not isinstance(result, list) or len(result) != 3:
@@ -232,7 +237,7 @@ return {allowed, remaining, ttl * 1000}
             raise BackendError(f"Unexpected error: {e}")
 
     async def _execute_script(
-        self, script_name: str, key: str, max_requests: int, window_seconds: int, cost: int = 1000
+        self, script_name: str, key: str, max_requests: int, window_seconds: int, window_end: int, cost: int = 1000
     ) -> Any:
         """Execute Lua script with EVAL."""
         if not self._redis:
@@ -248,7 +253,7 @@ return {allowed, remaining, ttl * 1000}
             key.encode(),  # KEYS[1]
             str(max_requests).encode(),  # ARGV[1]
             str(window_seconds).encode(),  # ARGV[2]
-            str(int(time.time())).encode(),  # ARGV[3]
+            str(window_end).encode(),  # ARGV[3] - window end timestamp
             str(cost).encode(),  # ARGV[4]
         )
 

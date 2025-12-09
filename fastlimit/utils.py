@@ -134,47 +134,39 @@ def _url_encode_key_component(value: str) -> str:
     return quote(value, safe='-_.~')
 
 
-def get_time_window(window_seconds: int) -> str:
+def get_time_window(window_seconds: int, timestamp: int = None) -> str:
     """
-    Generate time window key based on window size.
+    Generate time window key based on window size using epoch-aligned boundaries.
 
-    Creates consistent time window identifiers for grouping
-    rate limit counters.
+    Uses epoch-based alignment to ensure consistent window boundaries:
+    - window_start = timestamp - (timestamp % window_seconds)
+
+    This prevents the "boundary burst" problem where requests at the end
+    of one window and start of another can exceed the intended rate.
 
     Args:
         window_seconds: Size of the time window in seconds
+        timestamp: Unix timestamp (defaults to current time)
 
     Returns:
-        Time window identifier string
+        Window start timestamp as string (for use in Redis key)
 
     Examples:
-        >>> # For a 60-second window at 2024-11-01 14:35:42
-        >>> get_time_window(60)
-        '2024-11-01-14:35'  # Minute precision
+        >>> # For a 60-second window at timestamp 1700000142 (14:35:42)
+        >>> get_time_window(60, 1700000142)
+        '1700000100'  # Aligned to 14:35:00
 
-        >>> # For a 3600-second (1 hour) window
-        >>> get_time_window(3600)
-        '2024-11-01-14'  # Hour precision
+        >>> # For a 3600-second (1 hour) window at timestamp 1700000142
+        >>> get_time_window(3600, 1700000142)
+        '1699999200'  # Aligned to 14:00:00
     """
-    now = datetime.utcnow()
+    import time
+    if timestamp is None:
+        timestamp = int(time.time())
 
-    if window_seconds <= 1:
-        # Per second - include seconds
-        return now.strftime("%Y-%m-%d-%H:%M:%S")
-    elif window_seconds <= 60:
-        # Per minute - minute precision
-        return now.strftime("%Y-%m-%d-%H:%M")
-    elif window_seconds <= 3600:
-        # Per hour - hour precision
-        return now.strftime("%Y-%m-%d-%H")
-    elif window_seconds <= 86400:
-        # Per day - day precision
-        return now.strftime("%Y-%m-%d")
-    else:
-        # Longer periods - week precision
-        # Use ISO week number for consistent weekly windows
-        year, week, _ = now.isocalendar()
-        return f"{year}-W{week:02d}"
+    # Align to window boundary using epoch
+    window_start = timestamp - (timestamp % window_seconds)
+    return str(window_start)
 
 
 def hash_key(key: str, max_length: int = 200) -> str:

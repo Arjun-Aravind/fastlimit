@@ -175,9 +175,14 @@ class RateLimiter:
         cost_with_multiplier = cost * 1000
 
         # Route to appropriate algorithm
+        # Use Redis server time for consistency in distributed deployments
+        redis_time_seconds, redis_time_us = await self.backend.get_redis_time()
+
         if algorithm == "fixed_window":
             # Fixed window needs time-based key for window buckets
-            time_window = get_time_window(window_seconds)
+            current_time = redis_time_seconds
+            time_window = get_time_window(window_seconds, current_time)
+            window_end = int(time_window) + window_seconds  # When this window expires
             full_key = generate_key(
                 self.config.key_prefix,
                 key,
@@ -185,7 +190,7 @@ class RateLimiter:
                 time_window,
             )
             result = await self.backend.check_fixed_window(
-                full_key, max_requests, window_seconds, cost_with_multiplier
+                full_key, max_requests, window_seconds, window_end, cost_with_multiplier
             )
         elif algorithm == "token_bucket":
             # Token bucket uses persistent key (no time window needed)
