@@ -258,7 +258,13 @@ return {allowed, remaining, ttl * 1000}
         )
 
     async def check_token_bucket(
-        self, key: str, max_tokens: int, refill_rate: float, current_time: int, cost: int = 1000
+        self,
+        key: str,
+        max_tokens: int,
+        refill_rate_per_second: int,
+        window_seconds: int,
+        current_time_ms: int,
+        cost: int = 1000,
     ) -> RateLimitResult:
         """
         Check rate limit using token bucket algorithm.
@@ -269,8 +275,9 @@ return {allowed, remaining, ttl * 1000}
         Args:
             key: Rate limit key (should be pre-formatted)
             max_tokens: Maximum bucket capacity (with 1000x multiplier)
-            refill_rate: Tokens added per second (with 1000x multiplier)
-            current_time: Current Unix timestamp in seconds
+            refill_rate_per_second: Tokens added per second (integer, with 1000x multiplier)
+            window_seconds: Window duration in seconds (for TTL calculation)
+            current_time_ms: Current Unix timestamp in milliseconds
             cost: Tokens to consume (with 1000x multiplier, default 1000)
 
         Returns:
@@ -290,21 +297,22 @@ return {allowed, remaining, ttl * 1000}
                         self._script_shas["token_bucket"],
                         1,  # number of keys
                         key.encode(),  # KEYS[1]
-                        str(int(max_tokens)).encode(),  # ARGV[1]
-                        str(int(refill_rate)).encode(),  # ARGV[2] - convert to int
-                        str(current_time).encode(),  # ARGV[3]
-                        str(cost).encode(),  # ARGV[4]
+                        str(max_tokens).encode(),  # ARGV[1]
+                        str(refill_rate_per_second).encode(),  # ARGV[2] - integer tokens/sec
+                        str(window_seconds).encode(),  # ARGV[3] - for TTL
+                        str(current_time_ms).encode(),  # ARGV[4] - millisecond timestamp
+                        str(cost).encode(),  # ARGV[5]
                     )
                 except NoScriptError:
                     # Script not in cache, fall back to EVAL
                     logger.debug("Script not in cache, using EVAL")
                     result = await self._execute_token_bucket_script(
-                        key, max_tokens, refill_rate, current_time, cost
+                        key, max_tokens, refill_rate_per_second, window_seconds, current_time_ms, cost
                     )
             else:
                 # No SHA available, use EVAL
                 result = await self._execute_token_bucket_script(
-                    key, max_tokens, refill_rate, current_time, cost
+                    key, max_tokens, refill_rate_per_second, window_seconds, current_time_ms, cost
                 )
 
             # Parse result
@@ -329,7 +337,13 @@ return {allowed, remaining, ttl * 1000}
             raise BackendError(f"Unexpected error: {e}")
 
     async def _execute_token_bucket_script(
-        self, key: str, max_tokens: int, refill_rate: float, current_time: int, cost: int = 1000
+        self,
+        key: str,
+        max_tokens: int,
+        refill_rate_per_second: int,
+        window_seconds: int,
+        current_time_ms: int,
+        cost: int = 1000,
     ) -> Any:
         """Execute token bucket Lua script with EVAL."""
         if not self._redis:
@@ -343,10 +357,11 @@ return {allowed, remaining, ttl * 1000}
             script,
             1,  # number of keys
             key.encode(),  # KEYS[1]
-            str(int(max_tokens)).encode(),  # ARGV[1]
-            str(int(refill_rate)).encode(),  # ARGV[2]
-            str(current_time).encode(),  # ARGV[3]
-            str(cost).encode(),  # ARGV[4]
+            str(max_tokens).encode(),  # ARGV[1]
+            str(refill_rate_per_second).encode(),  # ARGV[2]
+            str(window_seconds).encode(),  # ARGV[3]
+            str(current_time_ms).encode(),  # ARGV[4]
+            str(cost).encode(),  # ARGV[5]
         )
 
     async def get_token_bucket_usage(self, key: str) -> Dict[str, Any]:
@@ -357,7 +372,7 @@ return {allowed, remaining, ttl * 1000}
             key: Rate limit key to check
 
         Returns:
-            Dictionary with tokens and last_refill timestamp
+            Dictionary with tokens (with 1000x multiplier) and last_refill_ms timestamp
 
         Raises:
             BackendError: If Redis operation fails
@@ -366,15 +381,15 @@ return {allowed, remaining, ttl * 1000}
             raise BackendError("Redis not connected")
 
         try:
-            # Use HMGET to get bucket state
-            result = await self._redis.hmget(key, "tokens", "last_refill")
+            # Use HMGET to get bucket state (uses 'last_refill_ms' for milliseconds)
+            result = await self._redis.hmget(key, "tokens", "last_refill_ms")
 
             tokens = int(result[0]) if result[0] else 0
-            last_refill = int(result[1]) if result[1] else 0
+            last_refill_ms = int(result[1]) if result[1] else 0
 
             return {
                 "tokens": tokens,
-                "last_refill": last_refill,
+                "last_refill_ms": last_refill_ms,
             }
         except RedisError as e:
             logger.error(f"Failed to get token bucket usage for key {key}: {e}")

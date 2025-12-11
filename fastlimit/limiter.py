@@ -194,30 +194,34 @@ class RateLimiter:
             )
         elif algorithm == "token_bucket":
             # Token bucket uses persistent key (no time window needed)
-            import time
             full_key = generate_key(
                 self.config.key_prefix,
                 key,
                 tenant_type,
                 "bucket",  # Static suffix instead of time window
             )
+            # Use milliseconds for precision with low rates (e.g., 1/hour)
+            # refill_rate = max_requests / window_seconds (tokens per second, integer)
+            # Lua script will use ms timestamps for sub-second refill precision
+            refill_rate_per_second = max_requests // window_seconds
+            current_time_ms = redis_time_seconds * 1000 + redis_time_us // 1000
             result = await self.backend.check_token_bucket(
                 key=full_key,
                 max_tokens=max_requests,
-                refill_rate=max_requests / window_seconds,  # tokens per second
-                current_time=int(time.time()),
+                refill_rate_per_second=refill_rate_per_second,
+                window_seconds=window_seconds,
+                current_time_ms=current_time_ms,
                 cost=cost_with_multiplier,
             )
         elif algorithm == "sliding_window":
             # Sliding window needs base key (windows calculated in algorithm)
-            import time
             base_key = generate_key(
                 self.config.key_prefix,
                 key,
                 tenant_type,
                 "sliding",  # Base suffix for sliding window
             )
-            current_time = int(time.time())
+            current_time = redis_time_seconds
             window_start = current_time - (current_time % window_seconds)
             previous_window_start = window_start - window_seconds
 
