@@ -196,13 +196,18 @@ class SlidingWindow(RateLimitAlgorithm):
         current_count = current_usage.get("current", 0)
         previous_count = previous_usage.get("current", 0)
 
-        # Calculate weight
+        # Calculate weight using integer math (consistent with Lua script)
         elapsed_in_window = current_time - window_start
-        window_progress = elapsed_in_window / window_seconds
-        previous_weight = 1 - window_progress
+        remaining_in_window = window_seconds - elapsed_in_window
 
-        # Calculate weighted count
-        weighted_count = (previous_count + (current_count * previous_weight)) // 1000
+        # Use fixed-point weight (0-1000 scale) for consistency with Lua
+        prev_weight_fp = (remaining_in_window * 1000) // window_seconds if window_seconds > 0 else 0
+
+        # Calculate weighted count using integer math
+        # Formula: weighted = current + (previous * weight)
+        # Note: counts already have 1000x multiplier, weight is 0-1000
+        weighted_previous = (previous_count * prev_weight_fp) // 1000
+        weighted_count = (current_count + weighted_previous) // 1000  # Divide by 1000 for display
 
         max_requests_display = max_requests // 1000
         remaining = max(0, max_requests_display - weighted_count)
@@ -213,7 +218,7 @@ class SlidingWindow(RateLimitAlgorithm):
             "remaining": remaining,
             "current_window": current_count // 1000,
             "previous_window": previous_count // 1000,
-            "weight": previous_weight,
+            "weight": prev_weight_fp / 1000,  # Convert fixed-point to float for display
             "window_seconds": window_seconds,
         }
 
