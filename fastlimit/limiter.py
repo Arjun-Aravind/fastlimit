@@ -369,7 +369,9 @@ class RateLimiter:
             cost_func=cost,
         )
 
-    async def reset(self, key: str, tenant_type: Optional[str] = None) -> bool:
+    async def reset(
+        self, key: str, algorithm: Optional[str] = None, tenant_type: Optional[str] = None
+    ) -> bool:
         """
         Reset rate limit for a specific key.
 
@@ -378,6 +380,8 @@ class RateLimiter:
 
         Args:
             key: Unique identifier for the rate limit
+            algorithm: Algorithm used (defaults to config.default_algorithm).
+                       Use "all" to reset keys for all algorithms.
             tenant_type: Tenant type (defaults to "default")
 
         Returns:
@@ -386,17 +390,49 @@ class RateLimiter:
         Examples:
             >>> await limiter.reset("user:123")
             True
+
+            >>> await limiter.reset("user:123", algorithm="token_bucket")
+            True
+
+            >>> await limiter.reset("user:123", algorithm="all")  # Reset all algorithms
+            True
         """
         if not self._connected:
             await self.connect()
 
-        # For fixed window, we need to generate the current window key
-        # We'll reset all common window sizes
         tenant_type = tenant_type or "default"
+        algorithm = algorithm or self.config.default_algorithm
+
+        # Use Redis server time for consistent window calculation
+        redis_time_seconds, _ = await self.backend.get_redis_time()
+
         reset_success = False
 
+        if algorithm == "all":
+            # Reset all algorithm types
+            reset_success |= await self._reset_fixed_window(key, tenant_type, redis_time_seconds)
+            reset_success |= await self._reset_token_bucket(key, tenant_type)
+            reset_success |= await self._reset_sliding_window(key, tenant_type, redis_time_seconds)
+        elif algorithm == "fixed_window":
+            reset_success = await self._reset_fixed_window(key, tenant_type, redis_time_seconds)
+        elif algorithm == "token_bucket":
+            reset_success = await self._reset_token_bucket(key, tenant_type)
+        elif algorithm == "sliding_window":
+            reset_success = await self._reset_sliding_window(key, tenant_type, redis_time_seconds)
+        else:
+            raise RateLimitConfigError(f"Unknown algorithm: {algorithm}")
+
+        return reset_success
+
+    async def _reset_fixed_window(
+        self, key: str, tenant_type: str, current_time: int
+    ) -> bool:
+        """Reset fixed window rate limit keys."""
+        reset_success = False
+
+        # Reset all common window sizes (current window for each)
         for window_seconds in [1, 60, 3600, 86400]:  # second, minute, hour, day
-            time_window = get_time_window(window_seconds)
+            time_window = get_time_window(window_seconds, current_time)
             full_key = generate_key(
                 self.config.key_prefix,
                 key,
@@ -409,8 +445,48 @@ class RateLimiter:
 
         return reset_success
 
+    async def _reset_token_bucket(self, key: str, tenant_type: str) -> bool:
+        """Reset token bucket rate limit key."""
+        full_key = generate_key(
+            self.config.key_prefix,
+            key,
+            tenant_type,
+            "bucket",
+        )
+        return await self.backend.reset(full_key)
+
+    async def _reset_sliding_window(
+        self, key: str, tenant_type: str, current_time: int
+    ) -> bool:
+        """Reset sliding window rate limit keys."""
+        reset_success = False
+
+        # Reset sliding window keys for all common window sizes
+        for window_seconds in [1, 60, 3600, 86400]:  # second, minute, hour, day
+            base_key = generate_key(
+                self.config.key_prefix,
+                key,
+                tenant_type,
+                "sliding",
+            )
+
+            # Calculate current and previous window starts
+            window_start = current_time - (current_time % window_seconds)
+            previous_window_start = window_start - window_seconds
+
+            # Delete both current and previous window keys
+            current_key = f"{base_key}:{window_start}"
+            previous_key = f"{base_key}:{previous_window_start}"
+
+            if await self.backend.reset(current_key):
+                reset_success = True
+            if await self.backend.reset(previous_key):
+                reset_success = True
+
+        return reset_success
+
     async def get_usage(
-        self, key: str, rate: str, tenant_type: Optional[str] = None
+        self, key: str, rate: str, algorithm: Optional[str] = None, tenant_type: Optional[str] = None
     ) -> Dict[str, Any]:
         """
         Get current usage statistics for a key.
@@ -418,23 +494,55 @@ class RateLimiter:
         Args:
             key: Unique identifier for the rate limit
             rate: Rate limit string to determine window
+            algorithm: Algorithm used (defaults to config.default_algorithm)
             tenant_type: Tenant type (defaults to "default")
 
         Returns:
-            Dictionary with usage statistics
+            Dictionary with usage statistics. Format varies by algorithm:
+            - fixed_window: {'current': int, 'limit': int, 'remaining': int, 'ttl': int}
+            - token_bucket: {'tokens': int, 'limit': int, 'remaining': int, 'ttl': int}
+            - sliding_window: {'current': int, 'limit': int, 'remaining': int,
+                               'current_window': int, 'previous_window': int, 'weight': float}
 
         Examples:
             >>> usage = await limiter.get_usage("user:123", "100/minute")
             >>> print(usage)
             {'current': 42, 'limit': 100, 'remaining': 58, 'ttl': 45}
+
+            >>> usage = await limiter.get_usage("user:123", "100/minute", algorithm="token_bucket")
+            >>> print(usage)
+            {'tokens': 58, 'limit': 100, 'remaining': 58, 'ttl': 120}
         """
         if not self._connected:
             await self.connect()
 
         requests, window_seconds = parse_rate(rate)
-        time_window = get_time_window(window_seconds)
         tenant_type = tenant_type or "default"
+        algorithm = algorithm or self.config.default_algorithm
 
+        # Use Redis server time for consistency
+        redis_time_seconds, redis_time_us = await self.backend.get_redis_time()
+
+        if algorithm == "fixed_window":
+            return await self._get_fixed_window_usage(
+                key, requests, window_seconds, tenant_type, redis_time_seconds
+            )
+        elif algorithm == "token_bucket":
+            return await self._get_token_bucket_usage(
+                key, requests, window_seconds, tenant_type, redis_time_seconds, redis_time_us
+            )
+        elif algorithm == "sliding_window":
+            return await self._get_sliding_window_usage(
+                key, requests, window_seconds, tenant_type, redis_time_seconds
+            )
+        else:
+            raise RateLimitConfigError(f"Unknown algorithm: {algorithm}")
+
+    async def _get_fixed_window_usage(
+        self, key: str, requests: int, window_seconds: int, tenant_type: str, current_time: int
+    ) -> Dict[str, Any]:
+        """Get usage statistics for fixed window algorithm."""
+        time_window = get_time_window(window_seconds, current_time)
         full_key = generate_key(
             self.config.key_prefix,
             key,
@@ -444,7 +552,7 @@ class RateLimiter:
 
         usage = await self.backend.get_usage(full_key)
 
-        # Convert from integer math
+        # Convert from integer math (1000x multiplier)
         current_requests = usage["current"] // 1000 if usage["current"] > 0 else 0
         remaining = max(0, requests - current_requests)
 
@@ -454,6 +562,106 @@ class RateLimiter:
             "remaining": remaining,
             "ttl": usage["ttl"],
             "window_seconds": window_seconds,
+        }
+
+    async def _get_token_bucket_usage(
+        self, key: str, max_requests: int, window_seconds: int, tenant_type: str,
+        redis_time_seconds: int, redis_time_us: int
+    ) -> Dict[str, Any]:
+        """Get usage statistics for token bucket algorithm."""
+        full_key = generate_key(
+            self.config.key_prefix,
+            key,
+            tenant_type,
+            "bucket",
+        )
+
+        usage = await self.backend.get_token_bucket_usage(full_key)
+
+        # Get current tokens (with 1000x multiplier)
+        stored_tokens = usage.get("tokens", 0)
+        last_refill_ms = usage.get("last_refill_ms", 0)
+
+        # Calculate tokens after refill since last update
+        max_tokens = max_requests * 1000
+        refill_rate_per_second = max_tokens // window_seconds
+
+        if last_refill_ms > 0:
+            current_time_ms = redis_time_seconds * 1000 + redis_time_us // 1000
+            time_elapsed_ms = max(0, current_time_ms - last_refill_ms)
+            tokens_to_add = (refill_rate_per_second * time_elapsed_ms) // 1000
+            current_tokens = min(max_tokens, stored_tokens + tokens_to_add)
+        else:
+            # Bucket not yet created, would start full
+            current_tokens = max_tokens
+
+        # Convert from integer math
+        tokens_display = current_tokens // 1000
+        remaining = tokens_display  # Tokens are what's remaining
+
+        # Estimate TTL (bucket keys use 2*window + 60s expiry)
+        ttl = window_seconds * 2 + 60
+
+        return {
+            "tokens": tokens_display,
+            "limit": max_requests,
+            "remaining": remaining,
+            "ttl": ttl,
+            "window_seconds": window_seconds,
+        }
+
+    async def _get_sliding_window_usage(
+        self, key: str, max_requests: int, window_seconds: int, tenant_type: str, current_time: int
+    ) -> Dict[str, Any]:
+        """Get usage statistics for sliding window algorithm."""
+        base_key = generate_key(
+            self.config.key_prefix,
+            key,
+            tenant_type,
+            "sliding",
+        )
+
+        # Calculate window boundaries
+        window_start = current_time - (current_time % window_seconds)
+        previous_window_start = window_start - window_seconds
+
+        current_key = f"{base_key}:{window_start}"
+        previous_key = f"{base_key}:{previous_window_start}"
+
+        # Get counts from both windows
+        current_usage = await self.backend.get_usage(current_key)
+        previous_usage = await self.backend.get_usage(previous_key)
+
+        current_count = current_usage.get("current", 0)
+        previous_count = previous_usage.get("current", 0)
+
+        # Calculate weight using integer math (consistent with Lua script)
+        elapsed_in_window = current_time - window_start
+        remaining_in_window = window_seconds - elapsed_in_window
+
+        # Use fixed-point weight (0-1000 scale) for consistency with Lua
+        prev_weight_fp = (remaining_in_window * 1000) // window_seconds if window_seconds > 0 else 0
+
+        # Calculate weighted count using integer math
+        # Formula: weighted = current + (previous * weight)
+        weighted_previous = (previous_count * prev_weight_fp) // 1000
+        weighted_count = current_count + weighted_previous
+
+        # Convert from 1000x multiplier for display
+        weighted_count_display = weighted_count // 1000
+        current_window_display = current_count // 1000
+        previous_window_display = previous_count // 1000
+        remaining = max(0, max_requests - weighted_count_display)
+
+        return {
+            "current": weighted_count_display,
+            "limit": max_requests,
+            "remaining": remaining,
+            "current_window": current_window_display,
+            "previous_window": previous_window_display,
+            "weight": prev_weight_fp / 1000,  # Convert to float for display
+            "window_seconds": window_seconds,
+            "ttl": remaining_in_window,
         }
 
     async def health_check(self) -> bool:
