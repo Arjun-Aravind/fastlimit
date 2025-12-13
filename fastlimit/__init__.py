@@ -25,7 +25,7 @@ FastAPI integration:
 
 from .limiter import RateLimiter
 from .exceptions import RateLimitExceeded, RateLimitConfigError, BackendError
-from .models import RateLimitConfig
+from .models import RateLimitConfig, CheckResult
 from .middleware import RateLimitHeadersMiddleware
 
 # Metrics are optional - only import if prometheus_client is available
@@ -47,6 +47,7 @@ __all__ = [
     "RateLimitConfigError",
     "BackendError",
     "RateLimitConfig",
+    "CheckResult",
     "RateLimitHeadersMiddleware",
 ]
 

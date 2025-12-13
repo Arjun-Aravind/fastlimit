@@ -8,7 +8,7 @@ from datetime import datetime
 import logging
 
 from .backends.redis import RedisBackend
-from .models import RateLimitConfig
+from .models import RateLimitConfig, CheckResult
 from .exceptions import RateLimitExceeded, RateLimitConfigError
 from .utils import parse_rate, generate_key, get_time_window
 
@@ -153,6 +153,53 @@ class RateLimiter:
             ... )
             True
         """
+        # Use check_with_info internally and just return the allowed status
+        result = await self.check_with_info(
+            key=key,
+            rate=rate,
+            algorithm=algorithm,
+            tenant_type=tenant_type,
+            cost=cost,
+        )
+        return result.allowed
+
+    async def check_with_info(
+        self,
+        key: str,
+        rate: str,
+        algorithm: Optional[str] = None,
+        tenant_type: Optional[str] = None,
+        cost: int = 1,
+    ) -> CheckResult:
+        """
+        Check if a request is allowed and return detailed rate limit info.
+
+        This method is similar to check() but returns a CheckResult with
+        full rate limit information instead of just True/raising an exception.
+        This is more efficient when you need usage info (e.g., for headers)
+        because it avoids a second Redis call.
+
+        Args:
+            key: Unique identifier for the rate limit (e.g., user ID, IP address)
+            rate: Rate limit string (e.g., "100/minute", "1000/hour")
+            algorithm: Algorithm to use (defaults to config.default_algorithm)
+            tenant_type: Tenant type for multi-tenant setups (e.g., "free", "premium")
+            cost: Cost of this request (default 1, can be higher for expensive operations)
+
+        Returns:
+            CheckResult with allowed status and usage information
+
+        Raises:
+            RateLimitConfigError: If configuration is invalid
+            BackendError: If backend operation fails
+
+        Examples:
+            >>> result = await limiter.check_with_info(key="user:123", rate="100/minute")
+            >>> if result.allowed:
+            ...     print(f"{result.remaining} requests remaining")
+            ... else:
+            ...     print(f"Rate limited, retry after {result.retry_after}s")
+        """
         # Ensure we're connected
         if not self._connected:
             await self.connect()
@@ -236,12 +283,21 @@ class RateLimiter:
         else:
             raise NotImplementedError(f"Algorithm {algorithm} not yet implemented")
 
-        # Check if request is allowed
-        if not result.allowed:
-            # Convert milliseconds to seconds for retry_after
-            retry_after_seconds = max(1, result.retry_after // 1000)
-            remaining_requests = result.remaining // 1000
+        # Convert from integer math (1000x multiplier)
+        remaining_requests = result.remaining // 1000
+        retry_after_seconds = max(1, result.retry_after // 1000) if not result.allowed else 0
 
+        # Create CheckResult with all info
+        check_result = CheckResult(
+            allowed=result.allowed,
+            limit=requests,
+            remaining=remaining_requests,
+            retry_after=retry_after_seconds,
+            window_seconds=window_seconds,
+        )
+
+        # If not allowed, raise exception (for backward compatibility with check())
+        if not result.allowed:
             raise RateLimitExceeded(
                 retry_after=retry_after_seconds,
                 limit=rate,
@@ -250,10 +306,10 @@ class RateLimiter:
 
         logger.debug(
             f"Rate limit check passed for key={key}, "
-            f"remaining={result.remaining // 1000}"
+            f"remaining={remaining_requests}"
         )
 
-        return True
+        return check_result
 
     def limit(
         self,
