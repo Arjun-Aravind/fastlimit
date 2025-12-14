@@ -19,6 +19,7 @@ def create_limit_decorator(
     tenant_func: Optional[Callable] = None,
     algorithm: Optional[str] = None,
     cost_func: Optional[Callable] = None,
+    trust_proxy_headers: bool = False,
 ):
     """
     Create a rate limit decorator for async functions.
@@ -69,6 +70,7 @@ def create_limit_decorator(
                     tenant_func=tenant_func,
                     algorithm=algorithm,
                     cost_func=cost_func,
+                    trust_proxy_headers=trust_proxy_headers,
                 )
 
                 # Call the original function
@@ -92,6 +94,7 @@ def create_limit_decorator(
                     tenant_func=tenant_func,
                     algorithm=algorithm,
                     cost_func=cost_func,
+                    trust_proxy_headers=trust_proxy_headers,
                 )
 
                 # Call the original async function
@@ -146,6 +149,7 @@ async def _check_rate_limit(
     tenant_func: Optional[Callable],
     algorithm: Optional[str],
     cost_func: Optional[Callable],
+    trust_proxy_headers: bool = False,
 ) -> None:
     """
     Perform rate limit check and handle the result.
@@ -168,9 +172,9 @@ async def _check_rate_limit(
             key = key_func(request)
         except Exception as e:
             logger.error(f"Error extracting key with key_func: {e}")
-            key = _get_default_key(request)
+            key = _get_default_key(request, trust_proxy_headers=trust_proxy_headers)
     else:
-        key = _get_default_key(request)
+        key = _get_default_key(request, trust_proxy_headers=trust_proxy_headers)
 
     # Extract tenant type
     tenant_type = None
@@ -189,9 +193,9 @@ async def _check_rate_limit(
             logger.error(f"Error calculating cost: {e}")
             cost = 1
 
-    # Perform rate limit check
+    # Perform rate limit check using check_with_info to get usage in single call
     try:
-        await limiter.check(
+        result = await limiter.check_with_info(
             key=key,
             rate=rate,
             algorithm=algorithm,
@@ -199,18 +203,14 @@ async def _check_rate_limit(
             cost=cost,
         )
 
-        # Rate limit check passed - get usage info for headers
+        # Rate limit check passed - store usage info for headers (no extra Redis call)
         if hasattr(request, "state"):
-            try:
-                usage = await limiter.get_usage(key=key, rate=rate, tenant_type=tenant_type)
-                request.state.rate_limit_info = {
-                    "limit": usage["limit"],
-                    "remaining": usage["remaining"],
-                    "window_seconds": usage["window_seconds"],
-                    "ttl": usage["ttl"],
-                }
-            except Exception as e:
-                logger.debug(f"Could not get usage info for headers: {e}")
+            request.state.rate_limit_info = {
+                "limit": result.limit,
+                "remaining": result.remaining,
+                "window_seconds": result.window_seconds,
+                "ttl": result.retry_after if result.retry_after > 0 else result.window_seconds,
+            }
 
     except RateLimitExceeded as e:
         # Add rate limit headers to the request state
@@ -227,31 +227,40 @@ async def _check_rate_limit(
         raise
 
 
-def _get_default_key(request: Any) -> str:
+def _get_default_key(request: Any, trust_proxy_headers: bool = False) -> str:
     """
     Get default rate limit key from request.
 
-    Default behavior is to use the client's IP address.
+    Default behavior is to use the client's direct IP address.
+    Proxy headers (X-Forwarded-For, X-Real-IP) are only trusted when
+    explicitly enabled via trust_proxy_headers=True.
+
+    SECURITY NOTE: Never trust proxy headers in production unless you're
+    behind a trusted reverse proxy that sets these headers. An attacker
+    can easily spoof these headers to bypass rate limiting.
 
     Args:
         request: Request object
+        trust_proxy_headers: If True, trust X-Forwarded-For and X-Real-IP headers.
+                            Only enable if behind a trusted reverse proxy.
 
     Returns:
         Rate limit key
     """
-    # Try to get IP address from various sources
+    # Primary: use direct client IP (most secure)
     # FastAPI/Starlette Request
-    if hasattr(request, "client") and request.client:
+    if hasattr(request, "client") and request.client and request.client.host:
         return f"ip:{request.client.host}"
 
-    # Check headers for forwarded IP
-    if hasattr(request, "headers"):
+    # Secondary: check proxy headers only if explicitly trusted
+    if trust_proxy_headers and hasattr(request, "headers"):
         # X-Forwarded-For header (behind proxy)
         forwarded_for = request.headers.get("X-Forwarded-For")
         if forwarded_for:
-            # Take the first IP in the chain
+            # Take the first IP in the chain (original client IP)
             ip = forwarded_for.split(",")[0].strip()
-            return f"ip:{ip}"
+            if ip:
+                return f"ip:{ip}"
 
         # X-Real-IP header (nginx)
         real_ip = request.headers.get("X-Real-IP")
@@ -290,6 +299,7 @@ class RateLimitMiddleware:
         limiter: Any,
         default_rate: str = "1000/minute",
         exclude_paths: Optional[list] = None,
+        trust_proxy_headers: bool = False,
     ):
         """
         Initialize middleware.
@@ -299,11 +309,14 @@ class RateLimitMiddleware:
             limiter: RateLimiter instance
             default_rate: Default rate limit for all endpoints
             exclude_paths: List of paths to exclude from rate limiting
+            trust_proxy_headers: If True, trust X-Forwarded-For headers.
+                               Only enable if behind a trusted reverse proxy.
         """
         self.app = app
         self.limiter = limiter
         self.default_rate = default_rate
         self.exclude_paths = exclude_paths or []
+        self.trust_proxy_headers = trust_proxy_headers
 
     async def __call__(self, scope: dict, receive: Any, send: Any) -> None:
         """
@@ -329,9 +342,14 @@ class RateLimitMiddleware:
         class SimpleRequest:
             def __init__(self, scope):
                 self.client = type("Client", (), {
-                    "host": scope.get("client", ["unknown", None])[0]
+                    "host": scope.get("client", ("unknown", None))[0]
                 })()
-                self.headers = dict(scope.get("headers", []))
+                # ASGI headers are List[Tuple[bytes, bytes]], convert to str keys/values
+                raw_headers = scope.get("headers", [])
+                self.headers = {
+                    k.decode("latin-1"): v.decode("latin-1")
+                    for k, v in raw_headers
+                }
                 self.path = scope.get("path", "")
 
         request = SimpleRequest(scope)
@@ -339,7 +357,7 @@ class RateLimitMiddleware:
         # Check rate limit
         try:
             await self.limiter.check(
-                key=_get_default_key(request),
+                key=_get_default_key(request, trust_proxy_headers=self.trust_proxy_headers),
                 rate=self.default_rate,
             )
         except RateLimitExceeded as e:

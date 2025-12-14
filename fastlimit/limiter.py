@@ -318,6 +318,7 @@ class RateLimiter:
         tenant_type: Optional[Callable] = None,
         algorithm: Optional[str] = None,
         cost: Optional[Callable] = None,
+        trust_proxy_headers: bool = False,
     ):
         """
         Create a decorator for rate limiting endpoints.
@@ -332,6 +333,8 @@ class RateLimiter:
             tenant_type: Optional function to extract tenant type from request
             algorithm: Algorithm to use (defaults to config.default_algorithm)
             cost: Optional function to calculate request cost
+            trust_proxy_headers: If True, trust X-Forwarded-For headers for IP.
+                               Only enable if behind a trusted reverse proxy.
 
         Returns:
             Decorator function for rate limiting
@@ -367,6 +370,7 @@ class RateLimiter:
             tenant_func=tenant_type,
             algorithm=algorithm,
             cost_func=cost,
+            trust_proxy_headers=trust_proxy_headers,
         )
 
     async def reset(
