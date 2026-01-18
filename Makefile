@@ -1,6 +1,6 @@
 # FastLimit Development Makefile
 
-.PHONY: help install dev test lint format clean docker-up docker-down docker-test benchmark
+.PHONY: help install dev test lint format clean docker-up docker-down docker-test benchmark commit bump release
 
 # Colors for terminal output
 RED := \033[0;31m
@@ -91,13 +91,44 @@ run-tenant: ## Run the multi-tenant example
 	@echo "$(GREEN)Starting multi-tenant demo...$(NC)"
 	poetry run uvicorn examples.multi_tenant:app --reload --port 8001
 
-pre-commit: ## Install pre-commit hooks
+pre-commit: ## Install pre-commit hooks (includes commit-msg hook)
 	@echo "$(GREEN)Installing pre-commit hooks...$(NC)"
 	poetry run pre-commit install
+	poetry run pre-commit install --hook-type commit-msg
 
 pre-commit-run: ## Run pre-commit on all files
 	@echo "$(GREEN)Running pre-commit checks...$(NC)"
 	poetry run pre-commit run --all-files
+
+# =============================================================================
+# Commitizen / Release Commands
+# =============================================================================
+
+commit: ## Interactive conventional commit (use instead of git commit)
+	@echo "$(GREEN)Starting interactive commit...$(NC)"
+	poetry run cz commit
+
+bump: ## Bump version based on conventional commits
+	@echo "$(GREEN)Bumping version...$(NC)"
+	poetry run cz bump --changelog
+	@echo "$(GREEN)Version bumped! Don't forget to push tags: git push && git push --tags$(NC)"
+
+bump-dry: ## Show what version bump would happen (dry run)
+	@echo "$(YELLOW)Dry run - showing what would happen:$(NC)"
+	poetry run cz bump --dry-run
+
+release: ## Full release workflow (bump + push)
+	@echo "$(YELLOW)This will bump version, update changelog, and push to remote$(NC)"
+	@echo "$(RED)Press Ctrl+C to cancel$(NC)"
+	@sleep 3
+	poetry run cz bump --changelog
+	git push origin $$(git branch --show-current)
+	git push origin --tags
+	@echo "$(GREEN)Release complete!$(NC)"
+
+check-commits: ## Validate commit messages
+	@echo "$(GREEN)Checking commit messages...$(NC)"
+	poetry run cz check --rev-range HEAD~5..HEAD
 
 publish-test: ## Publish to TestPyPI
 	@echo "$(YELLOW)Publishing to TestPyPI...$(NC)"
