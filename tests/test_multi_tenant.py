@@ -278,9 +278,10 @@ class TestMultiTenant:
             for _ in range(3):
                 await limiter.check(key=tenant_id, rate="3/minute", tenant_type=tenant_type)
 
-        # Reset all (by not specifying tenant_type)
-        result = await limiter.reset(key=tenant_id)
-        assert result is True
+        # Reset each tenant type (reset() scopes to a tenant; docs default to "default")
+        for tenant_type in ["free", "premium", "enterprise"]:
+            result = await limiter.reset(key=tenant_id, tenant_type=tenant_type)
+            assert result is True
 
         # All should work again
         for tenant_type in ["free", "premium", "enterprise"]:

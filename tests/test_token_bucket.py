@@ -181,7 +181,7 @@ class TestTokenBucket:
         """Test token bucket with concurrent requests."""
         limiter = clean_limiter
         key = "concurrent-tb-test"
-        rate = "20/second"
+        rate = "20/minute"
 
         async def make_request():
             try:

@@ -21,9 +21,10 @@ def app_with_middleware(redis_url):
     client = sync_redis.from_url(redis_url)
     client.flushdb()
     client.close()
+    import uuid
 
     app = FastAPI()
-    limiter = RateLimiter(redis_url=redis_url, key_prefix="test:middleware")
+    limiter = RateLimiter(redis_url=redis_url, key_prefix=f"test:middleware:{uuid.uuid4().hex[:8]}")
 
     # Add middleware
     app.add_middleware(RateLimitHeadersMiddleware)
@@ -92,9 +93,7 @@ class TestRateLimitHeadersMiddleware:
 
             assert response.status_code == 429
             assert "X-RateLimit-Limit" in response.headers
-            assert (
-                response.headers["X-RateLimit-Limit"] == "5"
-            )  # numeric limit, not "5/minute"
+            assert response.headers["X-RateLimit-Limit"] == "5"  # numeric limit, not "5/minute"
             assert "X-RateLimit-Remaining" in response.headers
             assert response.headers["X-RateLimit-Remaining"] == "0"
             assert "Retry-After" in response.headers
@@ -228,13 +227,15 @@ class TestRateLimitHeadersMiddleware:
 class TestMiddlewareIntegration:
     """Integration tests for middleware with actual rate limiter."""
 
-    async def test_middleware_with_limiter_check(self, clean_limiter):
+    async def test_middleware_with_limiter_check(self, redis_url):
         """Test middleware integration with actual limiter."""
+        import uuid
+
         import httpx
         from fastapi import FastAPI, Request
 
         app = FastAPI()
-        limiter = clean_limiter
+        limiter = RateLimiter(redis_url=redis_url, key_prefix=f"test:integ1:{uuid.uuid4().hex[:8]}")
 
         app.add_middleware(RateLimitHeadersMiddleware)
 
@@ -258,13 +259,15 @@ class TestMiddlewareIntegration:
             assert response.status_code == 429
             assert "Retry-After" in response.headers
 
-    async def test_middleware_preserves_response_body(self, clean_limiter):
+    async def test_middleware_preserves_response_body(self, redis_url):
         """Test that middleware doesn't alter response body."""
+        import uuid
+
         import httpx
         from fastapi import FastAPI, Request
 
         app = FastAPI()
-        limiter = clean_limiter
+        limiter = RateLimiter(redis_url=redis_url, key_prefix=f"test:integ2:{uuid.uuid4().hex[:8]}")
 
         app.add_middleware(RateLimitHeadersMiddleware)
 
@@ -295,9 +298,7 @@ class TestRateLimitMiddleware:
         import httpx
 
         transport = httpx.ASGITransport(app=app)
-        async with httpx.AsyncClient(
-            transport=transport, base_url="http://test"
-        ) as client:
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as client:
             responses = []
             for _ in range(count):
                 responses.append(await client.get(path))
@@ -306,10 +307,14 @@ class TestRateLimitMiddleware:
     @pytest.fixture
     def app_with_rate_limit_middleware(self, redis_url):
         """Create FastAPI app guarded by the ASGI RateLimitMiddleware."""
+        import uuid
+
         from fastlimit.decorators import RateLimitMiddleware
 
         app = FastAPI()
-        limiter = RateLimiter(redis_url=redis_url, key_prefix="test:asgi-middleware")
+        limiter = RateLimiter(
+            redis_url=redis_url, key_prefix=f"test:asgi-middleware:{uuid.uuid4().hex[:8]}"
+        )
 
         app.add_middleware(
             RateLimitMiddleware,
@@ -324,9 +329,7 @@ class TestRateLimitMiddleware:
         app.state.limiter = limiter
         return app
 
-    async def test_429_response_has_standard_headers(
-        self, app_with_rate_limit_middleware
-    ):
+    async def test_429_response_has_standard_headers(self, app_with_rate_limit_middleware):
         """Test that 429 responses include standard rate limit headers."""
         import time
 
@@ -352,10 +355,14 @@ class TestRateLimitMiddleware:
 
     async def test_excluded_paths_are_not_rate_limited(self, redis_url):
         """Test that exclude_paths requests bypass rate limiting."""
+        import uuid
+
         from fastlimit.decorators import RateLimitMiddleware
 
         app = FastAPI()
-        limiter = RateLimiter(redis_url=redis_url, key_prefix="test:asgi-exclude")
+        limiter = RateLimiter(
+            redis_url=redis_url, key_prefix=f"test:asgi-exclude:{uuid.uuid4().hex[:8]}"
+        )
 
         app.add_middleware(
             RateLimitMiddleware,
