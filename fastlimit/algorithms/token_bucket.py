@@ -82,9 +82,11 @@ class TokenBucket(RateLimitAlgorithm):
             - Refills at 1666.67 tokens/sec
             - Max capacity: 100000 tokens
         """
-        # Calculate refill rate (tokens per second as integer)
-        # For 100/minute: 100000 / 60 = 1666 tokens/sec
-        refill_rate_per_second = max_requests // window_seconds
+        # Calculate refill rate (tokens per second as fixed-point value)
+        # For 100/minute: 100000 / 60 = 1666.67 tokens/sec
+        # Fractional rates (e.g. 1/hour) are handled by the Lua script,
+        # which accumulates refill over elapsed milliseconds.
+        refill_rate_per_second = max_requests / window_seconds
 
         # Get current timestamp in milliseconds
         current_time_ms = int(time.time() * 1000)

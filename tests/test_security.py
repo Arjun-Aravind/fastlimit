@@ -165,6 +165,22 @@ class TestPasswordRedaction:
         assert "[REDACTED]" in redacted
         assert "localhost" in redacted
 
+    def test_password_not_in_init_log(self, caplog):
+        """Test that the RateLimiter init debug log redacts the password."""
+        import logging
+
+        from fastlimit import RateLimiter
+
+        caplog.set_level(logging.DEBUG, logger="fastlimit.limiter")
+
+        RateLimiter(redis_url="redis://user:mysecretpassword@localhost:6379")
+
+        records = [r for r in caplog.records if r.name == "fastlimit.limiter"]
+        assert records, "Expected a log record from the limiter module"
+        log_text = "\n".join(r.getMessage() for r in records)
+        assert "mysecretpassword" not in log_text
+        assert "[REDACTED]" in log_text
+
 
 class TestProxyHeaderSecurity:
     """

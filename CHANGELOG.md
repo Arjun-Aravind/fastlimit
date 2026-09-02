@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Fixed
+
+- **pool**: raise default `max_connections` to 1000 so concurrent requests no longer fail with "Too many connections" (previously 50)
+- **token-bucket**: allow fractional refill rates so low limits (e.g. `1/hour`, `100/day`) actually refill instead of never recovering
+- **headers**: emit numeric `X-RateLimit-Limit` and epoch `X-RateLimit-Reset` on 429 responses in both middlewares and decorator request state
+- **security**: redact the Redis password from the `RateLimiter` init debug log
+
 ## [0.1.0] - 2025-01-18
 
 ### Added

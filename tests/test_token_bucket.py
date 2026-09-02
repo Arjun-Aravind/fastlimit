@@ -352,6 +352,39 @@ class TestTokenBucket:
         except RateLimitExceeded:
             pass  # Expected if not enough tokens yet
 
+    async def test_low_rate_refills_after_window(self, clean_limiter, monkeypatch):
+        """
+        Test that low rates (e.g. 1/hour) refill correctly.
+
+        Regression test: refill rate was computed with integer division,
+        so any rate below one request per ~3.6 hours refilled at zero
+        and the bucket never recovered after being drained.
+        """
+        limiter = clean_limiter
+        key = "low-rate-refill-test"
+        rate = "1/hour"
+
+        # Use a fake Redis clock so the test doesn't need to sleep for an hour
+        fake_time = [1_700_000_000]
+
+        async def fake_get_redis_time():
+            return (fake_time[0], 0)
+
+        monkeypatch.setattr(limiter.backend, "get_redis_time", fake_get_redis_time)
+
+        # First request is allowed, second is denied
+        result = await limiter.check_with_info(key=key, rate=rate, algorithm="token_bucket")
+        assert result.allowed is True
+
+        with pytest.raises(RateLimitExceeded) as exc_info:
+            await limiter.check_with_info(key=key, rate=rate, algorithm="token_bucket")
+        assert exc_info.value.retry_after > 0
+
+        # After the window elapses the bucket must have refilled
+        fake_time[0] += 3600
+        result = await limiter.check_with_info(key=key, rate=rate, algorithm="token_bucket")
+        assert result.allowed is True
+
     async def test_fractional_cost(self, clean_limiter):
         """Test token bucket with fractional cost values."""
         limiter = clean_limiter

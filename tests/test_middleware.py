@@ -78,6 +78,8 @@ class TestRateLimitHeadersMiddleware:
 
     def test_rate_limited_request_has_retry_after(self, app_with_middleware):
         """Test that rate limited requests include Retry-After header."""
+        import time
+
         with TestClient(app_with_middleware) as client:
             # Make 5 requests (the limit)
             for _ in range(5):
@@ -85,15 +87,23 @@ class TestRateLimitHeadersMiddleware:
                 assert response.status_code == 200
 
             # 6th request should be rate limited
+            before = int(time.time())
             response = client.get("/limited")
 
             assert response.status_code == 429
             assert "X-RateLimit-Limit" in response.headers
+            assert (
+                response.headers["X-RateLimit-Limit"] == "5"
+            )  # numeric limit, not "5/minute"
             assert "X-RateLimit-Remaining" in response.headers
             assert response.headers["X-RateLimit-Remaining"] == "0"
             assert "Retry-After" in response.headers
             retry_after = int(response.headers["Retry-After"])
             assert retry_after > 0
+
+            # X-RateLimit-Reset must be a Unix timestamp, not a relative offset
+            reset = int(response.headers["X-RateLimit-Reset"])
+            assert reset > before, "Reset should be an epoch timestamp in the future"
 
     def test_remaining_count_decreases(self, app_with_middleware):
         """Test that remaining count decreases with each request."""
@@ -274,3 +284,101 @@ class TestMiddlewareIntegration:
 
             # Headers should be added
             assert "X-RateLimit-Limit" in response.headers
+
+
+class TestRateLimitMiddleware:
+    """Test suite for the ASGI RateLimitMiddleware."""
+
+    async def _drive(self, app, path="/anything", count=1):
+        """Drive the ASGI app on this test's event loop via httpx."""
+        import httpx
+
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(
+            transport=transport, base_url="http://test"
+        ) as client:
+            responses = []
+            for _ in range(count):
+                responses.append(await client.get(path))
+            return responses[0] if count == 1 else responses
+
+    @pytest.fixture
+    def app_with_rate_limit_middleware(self, redis_url):
+        """Create FastAPI app guarded by the ASGI RateLimitMiddleware."""
+        from fastlimit.decorators import RateLimitMiddleware
+
+        app = FastAPI()
+        limiter = RateLimiter(redis_url=redis_url, key_prefix="test:asgi-middleware")
+
+        app.add_middleware(
+            RateLimitMiddleware,
+            limiter=limiter,
+            default_rate="5/minute",
+        )
+
+        @app.get("/anything")
+        async def anything(request: Request):
+            return {"message": "ok"}
+
+        app.state.limiter = limiter
+        return app
+
+    async def test_429_response_has_standard_headers(
+        self, app_with_rate_limit_middleware
+    ):
+        """Test that 429 responses include standard rate limit headers."""
+        import time
+
+        limiter = app_with_rate_limit_middleware.state.limiter
+        await limiter.connect()
+        try:
+            # First 5 requests pass, 6th is rate limited
+            for _ in range(5):
+                response = await self._drive(app_with_rate_limit_middleware)
+                assert response.status_code == 200
+
+            before = int(time.time())
+            response = await self._drive(app_with_rate_limit_middleware)
+
+            assert response.status_code == 429
+            assert response.headers["X-RateLimit-Limit"] == "5"
+            assert response.headers["X-RateLimit-Remaining"] == "0"
+            assert int(response.headers["Retry-After"]) > 0
+            # Reset must be an epoch timestamp in the future, not a relative offset
+            assert int(response.headers["X-RateLimit-Reset"]) > before
+        finally:
+            await limiter.close()
+
+    async def test_excluded_paths_are_not_rate_limited(self, redis_url):
+        """Test that exclude_paths requests bypass rate limiting."""
+        from fastlimit.decorators import RateLimitMiddleware
+
+        app = FastAPI()
+        limiter = RateLimiter(redis_url=redis_url, key_prefix="test:asgi-exclude")
+
+        app.add_middleware(
+            RateLimitMiddleware,
+            limiter=limiter,
+            default_rate="1/minute",
+            exclude_paths=["/health"],
+        )
+
+        @app.get("/health")
+        async def health(request: Request):
+            return {"status": "ok"}
+
+        @app.get("/limited")
+        async def limited(request: Request):
+            return {"status": "ok"}
+
+        await limiter.connect()
+        try:
+            # Excluded path is never rate limited
+            for _ in range(5):
+                assert (await self._drive(app, path="/health")).status_code == 200
+
+            # Non-excluded path is limited
+            assert (await self._drive(app, path="/limited")).status_code == 200
+            assert (await self._drive(app, path="/limited")).status_code == 429
+        finally:
+            await limiter.close()

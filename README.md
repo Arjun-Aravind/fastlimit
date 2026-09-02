@@ -179,6 +179,7 @@ limiter = RateLimiter(
 | `key_prefix` | str | `"ratelimit"` | Prefix for all Redis keys |
 | `default_algorithm` | str | `"fixed_window"` | Default algorithm to use |
 | `enable_metrics` | bool | `False` | Enable Prometheus metrics collection |
+| `max_connections` | int | `1000` | Max Redis pool connections; must cover peak concurrent requests |
 
 ### Rate Limit Formats
 
@@ -346,8 +347,8 @@ await limiter.reset(key="user:123")
 
 **Optimizations:**
 - Lua scripts cached (EVALSHA vs EVAL)
-- Connection pooling (max 50 connections)
-- Integer-only math (no float conversions)
+- Connection pooling with configurable max connections (default: 1000)
+- Sub-second refill precision for token bucket low rates
 - Efficient key hashing for long keys
 
 ---

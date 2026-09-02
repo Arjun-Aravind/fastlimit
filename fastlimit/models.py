@@ -64,8 +64,10 @@ class RateLimitConfig(BaseModel):
         description="Redis socket timeout in seconds",
     )
     max_connections: int = Field(
-        default=50,
-        description="Maximum number of Redis connections in the pool",
+        default=1000,
+        description="Maximum number of Redis connections in the pool. "
+        "Each concurrent rate limit check needs one connection, so this must be "
+        "at least your expected peak concurrency.",
     )
 
     @field_validator("default_algorithm")
