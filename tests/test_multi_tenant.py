@@ -115,7 +115,7 @@ class TestMultiTenant:
             return {"key": request.headers.get("X-API-Key")}
 
         # Test each API key
-        for api_key, tier in api_key_tiers.items():  # noqa: B007
+        for api_key, _tier in api_key_tiers.items():
             request = make_request(headers={"X-API-Key": api_key})
 
             # Make 10 requests (the base limit)
@@ -137,7 +137,7 @@ class TestMultiTenant:
             results = []
             for _ in range(count):
                 try:
-                    await limiter.check(key=tenant_id, rate="50/minute", tenant_type=tenant_type)
+                    await limiter.check(key=tenant_id, rate="50/second", tenant_type=tenant_type)
                     results.append(True)
                 except RateLimitExceeded:
                     results.append(False)

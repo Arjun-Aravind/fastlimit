@@ -208,6 +208,7 @@ class TestRateLimitHeadersMiddleware:
 
     def test_headers_with_different_ips(self, app_with_middleware):
         """Test that different IPs get separate rate limits."""
+
         # Note: TestClient doesn't easily support different IPs,
         # but we can verify that the same client maintains state
         with TestClient(app_with_middleware) as client1:
