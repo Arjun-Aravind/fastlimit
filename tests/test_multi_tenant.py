@@ -137,7 +137,10 @@ class TestMultiTenant:
             results = []
             for _ in range(count):
                 try:
-                    await limiter.check(key=tenant_id, rate="50/second", tenant_type=tenant_type)
+                    # Minute window: on a 1-second window the sequential checks can
+                    # straddle a window boundary (documented fixed-window
+                    # behavior), over-allowing beyond the exact-count assertion.
+                    await limiter.check(key=tenant_id, rate="50/minute", tenant_type=tenant_type)
                     results.append(True)
                 except RateLimitExceeded:
                     results.append(False)
